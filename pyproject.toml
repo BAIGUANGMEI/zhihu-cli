@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "zhihu-cli"
 version = "0.1.0"
-description = "知乎命令行工具 — 在终端搜索问题、查看回答、浏览热榜"
+description = "知乎命令行工具 — 在终端搜索问题、查看回答、浏览热榜，支持二维码登录与Cookie登录"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -32,8 +32,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zhihu-cli/zhihu-cli"
-Repository = "https://github.com/zhihu-cli/zhihu-cli"
+Homepage = "https://github.com/BAIGUANGMEI/zhihu-cli"
+Repository = "https://github.com/BAIGUANGMEI/zhihu-cli"
 
 [project.scripts]
 zhihu = "zhihu_cli.cli:cli"
