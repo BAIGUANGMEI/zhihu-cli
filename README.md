@@ -37,10 +37,10 @@
 
 ```bash
 # 推荐：使用 uv
-uv tool install zhihu-cli
+uv tool install pyzhihu-cli
 
 # 或使用 pipx
-pipx install zhihu-cli
+pipx install pyzhihu-cli
 
 # 从源码安装（开发用）
 pip install -e .
