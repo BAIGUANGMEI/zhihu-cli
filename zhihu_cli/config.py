@@ -1,0 +1,33 @@
+"""Configuration and path management for zhihu-cli."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+# Application directories
+CONFIG_DIR = Path.home() / ".zhihu-cli"
+COOKIE_FILE = CONFIG_DIR / "cookies.json"
+
+# z_c0 is the main authentication token for Zhihu
+REQUIRED_COOKIES = frozenset({"z_c0"})
+
+# Zhihu URLs
+ZHIHU_BASE_URL = "https://www.zhihu.com"
+ZHIHU_API_V4 = "https://www.zhihu.com/api/v4"
+ZHIHU_API_V3 = "https://www.zhihu.com/api/v3"
+ZHIHU_LOGIN_URL = "https://www.zhihu.com/signin"
+
+# HTTP defaults
+DEFAULT_TIMEOUT = 15
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
+DEFAULT_HEADERS = {
+    "User-Agent": DEFAULT_USER_AGENT,
+    "Referer": f"{ZHIHU_BASE_URL}/",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
