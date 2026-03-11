@@ -44,6 +44,9 @@ dev = [
     "ruff>=0.11.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["zhihu_cli"]
+
 [tool.pytest.ini_options]
 markers = [
     "integration: requires valid login session",
