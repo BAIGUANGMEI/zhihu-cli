@@ -52,6 +52,16 @@ pip install -e .
 playwright install chromium
 ```
 
+## AI Agent Skill
+
+本项目提供了 AI Agent Skill，可通过 [OpenClaw](https://openclaw.ai) 下载使用：
+
+```
+https://clawhub.ai/BAIGUANGMEI/pyzhihu-cli
+```
+
+安装后，AI Agent 可自动获取 zhihu-cli 的完整使用说明、命令参考、项目架构和开发指南。
+
 ## 使用
 
 ### 登录
@@ -185,6 +195,7 @@ CLI (click) → ZhihuClient (requests)
 - `zhihu login --cookie` 要求 cookie 至少包含 `z_c0`
 - 用户查询使用 URL Token（即知乎个人主页的路径部分，如 `zhihu.com/people/xxx` 中的 `xxx`）
 - 二维码登录需要先安装 Playwright 浏览器：`playwright install chromium`
+
 
 ## License
 
