@@ -1,6 +1,6 @@
 # zhihu-cli
 
-知乎命令行工具 — 在终端搜索问题、查看回答、浏览热榜
+知乎命令行工具 — 在终端搜索问题、查看回答、发布提问、发布想法、发布文章(图文混合，富文本支持)、浏览热榜
 
 ## 功能
 
@@ -9,7 +9,7 @@
 - **热榜** — 查看知乎热榜
 - **问题** — 查看问题详情及回答
 - **回答** — 查看回答详情及评论
-- **发布** — 发布提问、发布想法、发布文章
+- **发布** — 发布提问、发布想法、发布文章（图文混合，富文本支持）
 - **用户** — 查看用户资料、回答、文章、关注/粉丝
 - **推荐** — 获取首页推荐内容
 - **话题** — 查看话题详情及热门问题
@@ -28,7 +28,7 @@
 | Social     | followers, following                     | 查看粉丝、关注列表             |
 | Feed       | feed, topic                              | 推荐 Feed、话题详情            |
 | Interact   | vote, follow-question                    | 赞同回答、关注问题             |
-| Create     | ask, pin, article                        | 发布提问、发布想法、发布文章     |
+| Create     | ask, pin, article                        | 发布提问、发布想法、发布文章（图文混合，富文本支持）     |
 | Other      | collections, notifications               | 收藏夹、通知                   |
 
 > 所有数据命令支持 `--json` 输出。
@@ -48,11 +48,7 @@ pipx install pyzhihu-cli
 pip install -e .
 ```
 
-安装后需要初始化 Playwright 浏览器（二维码登录需要）：
-
-```bash
-playwright install chromium
-```
+二维码登录使用知乎 API（`/api/v3/account/api/login/qrcode`），**无需安装 Playwright**，仅需本工具依赖的 `requests` 与 `qrcode`。
 
 ## AI Agent Skill
 
@@ -195,6 +191,13 @@ zhihu --version
 zhihu -v search "Python"   # 调试日志
 zhihu --help
 ```
+
+## 后续开发
+
+- [ ] 发布回答
+- [ ] 发布评论
+- [ ] 发布视频
+
 
 ## 架构
 

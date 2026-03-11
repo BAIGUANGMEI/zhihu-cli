@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyzhihu-cli"
-version = "0.1.1"
-description = "知乎命令行工具 — 在终端搜索问题、查看回答、浏览热榜，支持二维码登录与Cookie登录"
+version = "0.2.0"
+description = "知乎命令行工具 — 在终端搜索问题、查看回答、发布提问、发布想法、发布文章(图文混合，富文本支持)、浏览热榜，支持二维码登录与Cookie登录"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -25,11 +25,13 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.28",
-    "playwright>=1.40",
     "qrcode>=7.4",
     "click>=8.0",
     "rich>=13.0",
 ]
+
+[project.optional-dependencies]
+playwright = ["playwright>=1.40"]  # 仅当需要旧版浏览器二维码流程时安装，默认二维码登录已改用 API
 
 [project.urls]
 Homepage = "https://github.com/BAIGUANGMEI/zhihu-cli"

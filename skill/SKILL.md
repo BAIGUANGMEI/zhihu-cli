@@ -47,13 +47,7 @@ python -m venv .venv
 pip install -e .
 ```
 
-### 安装 Playwright 浏览器（二维码登录需要）
-
-```bash
-playwright install chromium
-```
-
-> **注意**: 如果只使用 `--cookie` 方式登录，可跳过此步。
+二维码登录通过知乎 API（`POST /api/v3/account/api/login/qrcode`）获取 token 与 link，在终端用 `qrcode` 库渲染二维码，轮询 `scan_info` 直至扫码确认，**无需 Playwright**。
 
 ---
 
@@ -62,7 +56,7 @@ playwright install chromium
 ### 1. 登录（首次使用必须先登录）
 
 ```bash
-# 方式一：二维码扫码登录（推荐，需要 Playwright）
+# 方式一：二维码扫码登录（推荐，仅需 requests + qrcode，无需 Playwright）
 zhihu login --qrcode
 
 # 方式二：手动提供 Cookie 字符串（至少包含 z_c0）
@@ -70,6 +64,9 @@ zhihu login --cookie "z_c0=xxx; _xsrf=yyy; d_c0=zzz"
 ```
 
 Cookie 获取方法：在浏览器登录知乎 → F12 → Network → 任意请求 → Headers → Cookie，复制完整值。
+
+
+## ***信息获取类命令说明：建议使用--json输出原始JSON数据，获得更加详细的数据。***
 
 ### 2. 验证登录状态
 
@@ -224,9 +221,9 @@ zhihu --help                # 帮助
 | 用户 | `following URL_TOKEN [--limit N] [--json]` | 关注列表 |
 | 互动 | `vote ANSWER_ID [--neutral]` | 赞同/取消赞同 |
 | 互动 | `follow-question QID [--unfollow]` | 关注/取消关注问题 |
-| 创作 | `ask TITLE [-d DETAIL] [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布提问 |
-| 创作 | `pin TITLE [-c CONTENT] [-i IMAGE ...]` | 发布想法（正文可 HTML 富文本） |
-| 创作 | `article TITLE CONTENT [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布文章 |
+| 创作 | `ask TITLE [-d DETAIL] [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布提问（正文可 HTML 富文本） |
+| 创作 | `pin TITLE [-c CONTENT] [-i IMAGE ...]` | 发布想法 |
+| 创作 | `article TITLE CONTENT [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布文章（正文可 HTML 富文本） |
 | 其他 | `collections [--limit N] [--json]` | 收藏夹 |
 | 其他 | `notifications [--limit N] [--json]` | 通知 |
 
