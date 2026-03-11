@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyzhihu-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "知乎命令行工具 — 在终端搜索问题、查看回答、浏览热榜，支持二维码登录与Cookie登录"
 readme = "README.md"
 license = { text = "Apache-2.0" }
