@@ -245,6 +245,27 @@ CLI (click) → ZhihuClient (requests)
 
 建议仅在可信环境中使用本工具，并妥善保管本地 Cookie 文件；通过 `zhihu logout` 可清除本地保存的登录态。
 
+## 发布到 PyPI
+
+发布前请确认 `pyproject.toml` 中 `version` 已更新（每次发布需递增）。
+
+```bash
+# 1. 安装构建与上传工具
+pip install build twine
+
+# 2. 在项目根目录构建（生成 dist/ 下的 wheel 与 sdist）
+python -m build
+
+# 3. 检查打包内容（可选）
+twine check dist/*
+
+# 4. 上传到 PyPI（需已配置 PyPI 账号或 token）
+twine upload dist/*
+```
+
+- 首次上传需在 [PyPI](https://pypi.org) 注册并配置 API Token；使用 token 时用户名填 `__token__`，密码填 token 值。
+- 若使用 TestPyPI 测试：`twine upload --repository testpypi dist/*`
+
 ## License
 
 Apache License 2.0
