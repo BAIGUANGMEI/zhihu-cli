@@ -16,6 +16,10 @@ ZHIHU_BASE_URL = "https://www.zhihu.com"
 ZHIHU_API_V4 = "https://www.zhihu.com/api/v4"
 ZHIHU_API_V3 = "https://www.zhihu.com/api/v3"
 ZHIHU_ZHUANLAN_API = "https://zhuanlan.zhihu.com/api"
+ZHIHU_IMAGE_API = "https://api.zhihu.com/images"
+ZHIHU_CONTENT_PUBLISH_URL = f"{ZHIHU_API_V4}/content/publish"
+ZHIHU_CONTENT_DRAFTS_URL = f"{ZHIHU_API_V4}/content/drafts"
+ZHIHU_OSS_UPLOAD_URL = "https://zhihu-pics-upload.zhimg.com"
 ZHIHU_LOGIN_URL = "https://www.zhihu.com/signin"
 
 # HTTP defaults

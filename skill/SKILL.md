@@ -161,8 +161,14 @@ zhihu ask "如何学习 Python？"
 # 发布提问（带描述和话题）
 zhihu ask "什么是机器学习？" -d "请详细解释" -t 19550517 -t 19551275
 
-# 发布想法
+# 发布想法（标题 + 可选正文；正文支持 HTML 富文本，见下方说明）
 zhihu pin "今天天气真好！"
+zhihu pin "标题" -c "想法正文内容"
+
+# 带图片发布（-i 可重复使用以添加多张图片）
+zhihu ask "求推荐" -d "详情" -i photo.jpg
+zhihu pin "标题" -c "正文" -i image1.jpg -i image2.jpg
+zhihu article "标题" "内容" -i cover.jpg
 ```
 
 ### 10. 发布文章
@@ -174,6 +180,16 @@ zhihu article "文章标题" "文章内容"
 # 发布文章（带话题）
 zhihu article "标题" "内容" -t 19550517
 ```
+
+### 富文本（HTML）
+
+**创作类命令的正文/内容均支持 HTML 富文本**，可用于加粗、换行、链接等：
+
+- **提问** `ask`：`-d/--detail` 中可使用 HTML（如 `<p>...</p>`、`<strong>...</strong>`）。
+- **想法** `pin`：`-c/--content` 中可使用 HTML；无图时正文会以 `<p>...</p>` 包裹后提交，带图时正文直接作为 `hybrid.html` 提交。
+- **文章** `article`：第二个参数为正文，支持完整 HTML 正文。
+
+示例：`zhihu pin "标题" -c "<p>第一段</p><p><strong>加粗</strong>与<a href=\"https://zhihu.com\">链接</a></p>"`
 
 ### 11. 其他
 
@@ -208,9 +224,9 @@ zhihu --help                # 帮助
 | 用户 | `following URL_TOKEN [--limit N] [--json]` | 关注列表 |
 | 互动 | `vote ANSWER_ID [--neutral]` | 赞同/取消赞同 |
 | 互动 | `follow-question QID [--unfollow]` | 关注/取消关注问题 |
-| 创作 | `ask TITLE [-d DETAIL] [-t TOPIC_ID ...]` | 发布提问 |
-| 创作 | `pin CONTENT` | 发布想法 |
-| 创作 | `article TITLE CONTENT [-t TOPIC_ID ...]` | 发布文章 |
+| 创作 | `ask TITLE [-d DETAIL] [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布提问 |
+| 创作 | `pin TITLE [-c CONTENT] [-i IMAGE ...]` | 发布想法（正文可 HTML 富文本） |
+| 创作 | `article TITLE CONTENT [-t TOPIC_ID ...] [-i IMAGE ...]` | 发布文章 |
 | 其他 | `collections [--limit N] [--json]` | 收藏夹 |
 | 其他 | `notifications [--limit N] [--json]` | 通知 |
 
@@ -281,7 +297,8 @@ zhihu_cli/
 | `vote_up(id)` / `vote_neutral(id)` | POST `/answers/{id}/voters` | 投票 |
 | `follow_question(id)` / `unfollow_question(id)` | POST/DELETE `/questions/{id}/followers` | 关注问题 |
 | `create_question(title, detail, topic_ids)` | POST `/questions` | 发布提问 |
-| `create_pin(content)` | POST `/pins` | 发布想法 |
+| `upload_image(file_path)` | POST `/images` + PUT OSS | 上传图片 |
+| `create_pin(title, content, image_infos)` | `/content/publish`（draft + publish） | 发布想法 |
 | `create_article(title, content, topic_ids)` | zhuanlan API: draft → patch → publish | 发布文章 |
 | `get_collections(...)` | `/members/{token}/favlists` | 收藏夹 |
 | `get_notifications(...)` | `/notifications` | 通知 |

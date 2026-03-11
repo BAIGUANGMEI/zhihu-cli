@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from zhihu_cli.client import ZhihuClient
-from zhihu_cli.config import DEFAULT_TIMEOUT, ZHIHU_API_V4
+from zhihu_cli.config import DEFAULT_TIMEOUT, ZHIHU_API_V4, ZHIHU_CONTENT_DRAFTS_URL, ZHIHU_CONTENT_PUBLISH_URL
 from zhihu_cli.exceptions import DataFetchError, LoginError
 
 
@@ -418,31 +418,73 @@ class TestCreateQuestion:
             with pytest.raises(DataFetchError):
                 client.create_question("Q")
 
+    def test_with_images_uses_content_publish(self, client):
+        """Question with images routes through /content/publish."""
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": "q999", "type": "question"}'},
+        })
+        image_info = {
+            "src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=x",
+            "original_src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=y",
+            "watermark": "watermark",
+            "watermark_src": "",
+        }
+        with patch.object(
+            client._session, "post",
+            return_value=publish_resp,
+        ) as mock_post:
+            result = client.create_question(
+                "Title?", detail="Desc",
+                image_infos=[image_info],
+            )
+            assert result["id"] == "q999"
+            call_url = mock_post.call_args[0][0]
+            assert "content/publish" in call_url
+            payload = mock_post.call_args[1]["json"]
+            assert payload["action"] == "question"
+            assert payload["data"]["title"]["title"] == "Title?"
+            assert "v2-abc" in payload["data"]["hybrid"]["html"]
+
 
 # ── create_pin ─────────────────────────────────────────────────────────────────
 
 
 class TestCreatePin:
     def test_success(self, client):
-        resp_data = {"id": 999}
+        """Pin without images uses content/publish: draft then publish with title + hybrid."""
+        draft_resp = _make_response(200, json_data={"data": {"content_id": "draft_pin_1"}})
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": 999, "type": "pin"}'},
+        })
         with patch.object(
             client._session, "post",
-            return_value=_make_response(200, json_data=resp_data),
+            side_effect=[draft_resp, publish_resp],
         ) as mock_post:
-            result = client.create_pin("Hello world")
-            assert result == {"id": 999}
-            payload = mock_post.call_args[1]["data"]
-            import json
-            content = json.loads(payload["content"])
-            assert content[0]["type"] == "text"
-            assert content[0]["content"] == "Hello world"
+            result = client.create_pin("Hello world", "Some content")
+            assert result["id"] == 999
+            assert mock_post.call_count == 2
+            publish_call = mock_post.call_args_list[1]
+            payload = publish_call[1]["json"]
+            assert payload["action"] == "pin"
+            assert payload["data"]["title"]["title"] == "Hello world"
+            assert payload["data"]["hybrid"]["html"] == "<p>Some content</p>"
+            assert payload["data"]["hybrid"]["textLength"] == 12
+            assert "draft" in payload["data"] and "publish" in payload["data"]
+            assert "traceId" in payload["data"]["publish"]
 
-    def test_201_success(self, client):
+    def test_success_title_only(self, client):
+        draft_resp = _make_response(200, json_data={"data": {"content_id": "d1"}})
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": 111, "type": "pin"}'},
+        })
         with patch.object(
             client._session, "post",
-            return_value=_make_response(201, json_data={"id": 111}),
+            side_effect=[draft_resp, publish_resp],
         ):
-            result = client.create_pin("Pin text")
+            result = client.create_pin("Pin text", "")
             assert result["id"] == 111
 
     def test_401_raises_login_error(self, client):
@@ -451,15 +493,17 @@ class TestCreatePin:
             return_value=_make_response(401),
         ):
             with pytest.raises(LoginError):
-                client.create_pin("text")
+                client.create_pin("text", "")
 
     def test_failure_status(self, client):
+        draft_resp = _make_response(200, json_data={"data": {"content_id": "d1"}})
+        fail_resp = _make_response(403, text="Forbidden")
         with patch.object(
             client._session, "post",
-            return_value=_make_response(403, text="Forbidden"),
+            side_effect=[draft_resp, fail_resp],
         ):
             with pytest.raises(DataFetchError):
-                client.create_pin("text")
+                client.create_pin("text", "")
 
     def test_network_error(self, client):
         with patch.object(
@@ -467,7 +511,7 @@ class TestCreatePin:
             side_effect=requests.ConnectionError("err"),
         ):
             with pytest.raises(DataFetchError):
-                client.create_pin("text")
+                client.create_pin("text", "")
 
 
 # ── create_article ──────────────────────────────────────────────────────────────
@@ -532,3 +576,205 @@ class TestCreateArticle:
              patch.object(client._session, "put", return_value=publish_resp):
             with pytest.raises(DataFetchError):
                 client.create_article("T", "C")
+
+    def test_with_images_uses_content_publish(self, client):
+        """Article with images routes through /content/publish."""
+        draft_resp = _make_response(200, json_data={
+            "data": {"content_id": "draft_a1"},
+        })
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": "art_img", "type": "article"}'},
+        })
+        image_info = {
+            "src": "https://pic-private.zhihu.com/v2-xyz~q75.jpg?auth=x",
+            "original_src": "https://pic-private.zhihu.com/v2-xyz~q75.jpg?auth=y",
+            "watermark": "watermark",
+            "watermark_src": "",
+        }
+        with patch.object(
+            client._session, "post",
+            side_effect=[draft_resp, publish_resp],
+        ) as mock_post:
+            result = client.create_article(
+                "Title", "<p>Body</p>",
+                image_infos=[image_info],
+            )
+            assert result["id"] == "art_img"
+            publish_call = mock_post.call_args_list[1]
+            call_url = publish_call[0][0]
+            assert "content/publish" in call_url
+            payload = publish_call[1]["json"]
+            assert payload["action"] == "article"
+            assert payload["data"]["title"]["title"] == "Title"
+            assert "v2-xyz" in payload["data"]["hybrid"]["html"]
+            assert payload["data"]["draft"]["id"] == "draft_a1"
+
+
+# ── upload_image ────────────────────────────────────────────────────────────────
+
+
+class TestUploadImage:
+    def _poll_response(self):
+        return _make_response(200, json_data={
+            "status": "success",
+            "src": "https://pic-private.zhihu.com/v2-abc123~q75.jpg?auth=x",
+            "original_src": "https://pic-private.zhihu.com/v2-abc123~q75.jpg?auth=y",
+            "watermark": "watermark",
+            "watermark_src": "https://pic-private.zhihu.com/v2-wm~q75.jpg?auth=z",
+        })
+
+    def test_success_state_2(self, client, tmp_path):
+        """Image not yet on server — full upload flow."""
+        img_file = tmp_path / "test.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+
+        register_resp = _make_response(200, json_data={
+            "upload_file": {"image_id": "123", "object_key": "v2-abc123", "state": 2},
+            "upload_token": {
+                "access_key": "ak", "access_id": "aid", "access_token": "at",
+            },
+        })
+        oss_resp = _make_response(200)
+        poll_resp = self._poll_response()
+
+        with patch.object(client._session, "post", return_value=register_resp), \
+             patch.object(client._session, "get", return_value=poll_resp), \
+             patch("requests.put", return_value=oss_resp) as mock_oss:
+            result = client.upload_image(str(img_file))
+            assert isinstance(result, dict)
+            assert "pic-private.zhihu.com" in result["src"]
+            mock_oss.assert_called_once()
+
+    def test_success_state_1(self, client, tmp_path):
+        """Image already exists — no OSS upload needed."""
+        img_file = tmp_path / "test.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+
+        register_resp = _make_response(200, json_data={
+            "upload_file": {"image_id": "456", "state": 1},
+        })
+        poll_resp = self._poll_response()
+
+        with patch.object(client._session, "post", return_value=register_resp), \
+             patch.object(client._session, "get", return_value=poll_resp), \
+             patch("requests.put") as mock_oss:
+            result = client.upload_image(str(img_file))
+            assert isinstance(result, dict)
+            assert "src" in result
+            mock_oss.assert_not_called()
+
+    def test_file_not_found(self, client):
+        with pytest.raises(DataFetchError, match="not found"):
+            client.upload_image("/nonexistent/image.jpg")
+
+    def test_register_failure(self, client, tmp_path):
+        img_file = tmp_path / "test.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        with patch.object(
+            client._session, "post",
+            return_value=_make_response(500, text="err"),
+        ):
+            with pytest.raises(DataFetchError):
+                client.upload_image(str(img_file))
+
+    def test_oss_upload_failure(self, client, tmp_path):
+        img_file = tmp_path / "test.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        register_resp = _make_response(200, json_data={
+            "upload_file": {"image_id": "123", "object_key": "v2-abc", "state": 2},
+            "upload_token": {
+                "access_key": "ak", "access_id": "aid", "access_token": "at",
+            },
+        })
+        with patch.object(client._session, "post", return_value=register_resp), \
+             patch("requests.put", return_value=_make_response(403, text="Forbidden")):
+            with pytest.raises(DataFetchError, match="OSS upload"):
+                client.upload_image(str(img_file))
+
+    def test_network_error(self, client, tmp_path):
+        img_file = tmp_path / "test.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+        with patch.object(
+            client._session, "post",
+            side_effect=requests.ConnectionError("err"),
+        ):
+            with pytest.raises(DataFetchError):
+                client.upload_image(str(img_file))
+
+
+# ── create_pin with images ──────────────────────────────────────────────────────
+
+
+class TestCreatePinWithImages:
+    _SAMPLE_INFO = {
+        "src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=x",
+        "original_src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=y",
+        "watermark": "watermark",
+        "watermark_src": "",
+    }
+
+    def test_with_images_uses_content_publish(self, client):
+        """Pin with images uses /content/publish endpoint; payload has title + hybrid like question."""
+        draft_resp = _make_response(200, json_data={
+            "data": {"content_id": "draft_p1"},
+        })
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": "pin123", "type": "pin"}'},
+        })
+        with patch.object(
+            client._session, "post",
+            side_effect=[draft_resp, publish_resp],
+        ) as mock_post:
+            result = client.create_pin("My title", "Body content", image_infos=[self._SAMPLE_INFO])
+            assert result["id"] == "pin123"
+            publish_call = mock_post.call_args_list[1]
+            call_url = publish_call[0][0]
+            assert "content/publish" in call_url
+            payload = publish_call[1]["json"]
+            assert payload["data"]["draft"]["id"] == "draft_p1"
+            assert payload["data"]["title"]["title"] == "My title"
+            assert "hybrid" in payload["data"]
+            assert "Body content" in payload["data"]["hybrid"]["html"]
+            assert payload["data"]["hybrid"]["textLength"] == 12
+
+    def test_without_images_uses_content_publish(self, client):
+        """Pin without images uses content/publish (draft + publish), no media."""
+        draft_resp = _make_response(200, json_data={"data": {"content_id": "draft_1"}})
+        publish_resp = _make_response(200, json_data={
+            "code": 0,
+            "data": {"result": '{"id": 999, "type": "pin"}'},
+        })
+        with patch.object(
+            client._session, "post",
+            side_effect=[draft_resp, publish_resp],
+        ) as mock_post:
+            result = client.create_pin("text", "")
+            assert result["id"] == 999
+            assert mock_post.call_count == 2
+            publish_call = mock_post.call_args_list[1]
+            assert "content/publish" in publish_call[0][0]
+            payload = publish_call[1]["json"]
+            assert payload["data"].get("media") is None
+            assert payload["data"]["title"]["title"] == "text"
+
+    def test_with_images_401(self, client):
+        with patch.object(
+            client._session, "post",
+            return_value=_make_response(401),
+        ):
+            with pytest.raises(LoginError):
+                client.create_pin("text", "", image_infos=[self._SAMPLE_INFO])
+
+    def test_with_images_failure(self, client):
+        draft_resp = _make_response(200, json_data={
+            "data": {"content_id": "draft_p2"},
+        })
+        publish_resp = _make_response(500, text="err")
+        with patch.object(
+            client._session, "post",
+            side_effect=[draft_resp, publish_resp],
+        ):
+            with pytest.raises(DataFetchError):
+                client.create_pin("text", "", image_infos=[self._SAMPLE_INFO])

@@ -32,3 +32,5 @@ cookies.json
 *.tmp
 *.bak
 .coverage
+
+*.jpg

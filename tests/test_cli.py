@@ -400,3 +400,54 @@ class TestArticleCommand:
         with patch(_CLIENT_PATCH, return_value=mc):
             result = runner.invoke(cli, ["article", "T", "B"])
             assert result.exit_code != 0
+
+
+class TestImageOptions:
+    _SAMPLE_INFO = {
+        "src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=x",
+        "original_src": "https://pic-private.zhihu.com/v2-abc~q75.jpg?auth=y",
+        "watermark": "watermark",
+        "watermark_src": "",
+    }
+
+    def test_pin_with_image(self, runner, saved_cookies, tmp_path):
+        img = tmp_path / "photo.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 50)
+        mc = _make_mock_client(
+            upload_image=self._SAMPLE_INFO,
+            create_pin={"id": "pin_img_1"},
+        )
+        with patch(_CLIENT_PATCH, return_value=mc):
+            result = runner.invoke(cli, ["pin", "Hello", "-i", str(img)])
+            assert result.exit_code == 0
+            assert "pin_img_1" in result.output
+            mc.upload_image.assert_called_once_with(str(img), source="pin")
+            mc.create_pin.assert_called_once_with(
+                title="Hello", content="", image_infos=[self._SAMPLE_INFO]
+            )
+
+    def test_ask_with_image(self, runner, saved_cookies, tmp_path):
+        img = tmp_path / "photo.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 50)
+        mc = _make_mock_client(
+            upload_image=self._SAMPLE_INFO,
+            create_question={"id": 12345},
+        )
+        with patch(_CLIENT_PATCH, return_value=mc):
+            result = runner.invoke(cli, ["ask", "What?", "-i", str(img)])
+            assert result.exit_code == 0
+            assert "12345" in result.output
+            mc.upload_image.assert_called_once()
+
+    def test_article_with_image(self, runner, saved_cookies, tmp_path):
+        img = tmp_path / "photo.jpg"
+        img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 50)
+        mc = _make_mock_client(
+            upload_image=self._SAMPLE_INFO,
+            create_article={"id": "art_img_1"},
+        )
+        with patch(_CLIENT_PATCH, return_value=mc):
+            result = runner.invoke(cli, ["article", "Title", "Body", "-i", str(img)])
+            assert result.exit_code == 0
+            assert "art_img_1" in result.output
+            mc.upload_image.assert_called_once()

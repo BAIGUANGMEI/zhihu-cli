@@ -145,7 +145,8 @@ def notifications(limit: int, as_json: bool):
 @click.argument("title")
 @click.option("-d", "--detail", default="", help="Question description")
 @click.option("-t", "--topic", "topics", multiple=True, help="Topic ID (repeatable)")
-def ask(title: str, detail: str, topics: tuple[str, ...]):
+@click.option("-i", "--image", "images", multiple=True, help="Image file path (repeatable)")
+def ask(title: str, detail: str, topics: tuple[str, ...], images: tuple[str, ...]):
     """Post a new question (发布提问)."""
     if not title.strip():
         print_error("Title cannot be empty")
@@ -153,10 +154,19 @@ def ask(title: str, detail: str, topics: tuple[str, ...]):
 
     with _get_client() as client:
         try:
+            image_infos = None
+            if images:
+                image_infos = []
+                for img_path in images:
+                    print_info(f"Uploading image: {img_path}")
+                    info = client.upload_image(img_path, source="question")
+                    image_infos.append(info)
+
             result = client.create_question(
                 title=title.strip(),
                 detail=detail,
                 topic_ids=list(topics) if topics else None,
+                image_infos=image_infos,
             )
             qid = result.get("id", "")
             if qid:
@@ -172,16 +182,30 @@ def ask(title: str, detail: str, topics: tuple[str, ...]):
 
 
 @click.command()
-@click.argument("content")
-def pin(content: str):
-    """Write a new pin / thought (发布想法)."""
-    if not content.strip():
-        print_error("Content cannot be empty")
+@click.argument("title")
+@click.option("-c", "--content", default="", help="Pin body content (optional)")
+@click.option("-i", "--image", "images", multiple=True, help="Image file path (repeatable)")
+def pin(title: str, content: str, images: tuple[str, ...]):
+    """Write a new pin / thought (发布想法). Title and content, payload similar to question."""
+    if not title.strip():
+        print_error("Title cannot be empty")
         sys.exit(1)
 
     with _get_client() as client:
         try:
-            result = client.create_pin(content=content.strip())
+            image_infos = None
+            if images:
+                image_infos = []
+                for img_path in images:
+                    print_info(f"Uploading image: {img_path}")
+                    info = client.upload_image(img_path, source="pin")
+                    image_infos.append(info)
+
+            result = client.create_pin(
+                title=title.strip(),
+                content=content.strip(),
+                image_infos=image_infos,
+            )
             pid = result.get("id", "")
             if pid:
                 print_success(
@@ -199,7 +223,8 @@ def pin(content: str):
 @click.argument("title")
 @click.argument("content")
 @click.option("-t", "--topic", "topics", multiple=True, help="Topic ID (repeatable)")
-def article(title: str, content: str, topics: tuple[str, ...]):
+@click.option("-i", "--image", "images", multiple=True, help="Image file path (repeatable)")
+def article(title: str, content: str, topics: tuple[str, ...], images: tuple[str, ...]):
     """Publish a new article (发布文章)."""
     if not title.strip():
         print_error("Title cannot be empty")
@@ -210,9 +235,19 @@ def article(title: str, content: str, topics: tuple[str, ...]):
 
     with _get_client() as client:
         try:
+            body = f"<p>{content.strip()}</p>"
+            image_infos = None
+            if images:
+                image_infos = []
+                for img_path in images:
+                    print_info(f"Uploading image: {img_path}")
+                    info = client.upload_image(img_path, source="article")
+                    image_infos.append(info)
+
             result = client.create_article(
                 title=title.strip(),
-                content=f"<p>{content.strip()}</p>",
+                content=body,
+                image_infos=image_infos,
                 topic_ids=list(topics) if topics else None,
             )
             aid = result.get("id", "")

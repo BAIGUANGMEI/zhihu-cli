@@ -165,17 +165,25 @@ zhihu follow-question <question_id> --undo
 
 ### 创作
 
+发布提问、想法、文章时，**描述/正文均支持 HTML 富文本**（如 `<p>`、`<strong>`、`<a>` 等）。
+
 ```bash
 # 发布提问
 zhihu ask "如何学习 Python？"
 zhihu ask "什么是机器学习？" -d "请详细解释" -t 19550517 -t 19551275
 
-# 发布想法
+# 发布想法（标题 + 可选正文，正文可用 HTML）
 zhihu pin "今天天气真好！"
+zhihu pin "标题" -c "想法正文内容"
 
 # 发布文章
 zhihu article "文章标题" "文章内容"
 zhihu article "标题" "内容" -t 19550517
+
+# 带图片发布（-i 可重复使用以添加多张图片）
+zhihu ask "求推荐" -d "详情" -i photo.jpg
+zhihu pin "标题" -c "正文" -i image1.jpg -i image2.jpg
+zhihu article "标题" "内容" -i cover.jpg
 ```
 
 ### 其他

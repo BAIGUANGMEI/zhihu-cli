@@ -1,4 +1,4 @@
-﻿"""Zhihu API client using requests.
+"""Zhihu API client using requests.
 
 Uses Zhihu's web API endpoints with cookie-based authentication.
 All operations use HTTP requests, no browser automation needed after login.
@@ -6,13 +6,30 @@ All operations use HTTP requests, no browser automation needed after login.
 
 from __future__ import annotations
 
+import base64
+import email.utils
+import hashlib
+import hmac
 import json
 import logging
+import time
+import uuid
+from pathlib import Path
 from typing import Any
 
 import requests
+from PIL import Image
 
-from .config import DEFAULT_HEADERS, DEFAULT_TIMEOUT, ZHIHU_API_V4, ZHIHU_ZHUANLAN_API
+from .config import (
+    DEFAULT_HEADERS,
+    DEFAULT_TIMEOUT,
+    ZHIHU_API_V4,
+    ZHIHU_CONTENT_DRAFTS_URL,
+    ZHIHU_CONTENT_PUBLISH_URL,
+    ZHIHU_IMAGE_API,
+    ZHIHU_OSS_UPLOAD_URL,
+    ZHIHU_ZHUANLAN_API,
+)
 from .exceptions import DataFetchError, LoginError
 
 logger = logging.getLogger(__name__)
@@ -358,29 +375,249 @@ class ZhihuClient:
             logger.error("Unfollow question failed: %s", e)
             return False
 
+    # ===== Image Upload =====
+
+    def upload_image(self, file_path: str,
+                     source: str = "article") -> dict:
+        """Upload an image to Zhihu and return image info.
+
+        Handles the full flow: register → OSS upload → poll → return info.
+
+        Args:
+            file_path: Path to the image file.
+            source: Upload context ('article', 'pin', etc.).
+
+        Returns:
+            Dict with keys: src, original_src, watermark, watermark_src.
+        """
+        path = Path(file_path)
+        if not path.is_file():
+            raise DataFetchError(f"Image file not found: {file_path}")
+
+        image_data = path.read_bytes()
+        md5_hex = hashlib.md5(image_data).hexdigest()
+
+        # Step 1: Register image with Zhihu
+        try:
+            resp = self._session.post(
+                ZHIHU_IMAGE_API,
+                json={"image_hash": md5_hex, "source": source},
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            raise DataFetchError(f"Image registration failed: {e}") from e
+        if resp.status_code != 200:
+            raise DataFetchError(
+                f"Image registration failed ({resp.status_code}): {resp.text[:200]}"
+            )
+        data = resp.json()
+        upload_file = data["upload_file"]
+        image_id = upload_file["image_id"]
+        state = upload_file["state"]
+
+        # Step 2: Upload to OSS if needed
+        if state == 2:
+            obj_key = upload_file["object_key"]
+            self._upload_to_oss(obj_key, image_data, data["upload_token"])
+        elif state != 1:
+            raise DataFetchError(f"Unexpected image state: {state}")
+
+        # Step 3: Poll until image processing completes
+        image_info = self._poll_image(str(image_id))
+
+        # Step 4: Get image dimensions
+        try:
+            with Image.open(path) as img:
+                image_info["width"], image_info["height"] = img.size
+        except Exception:
+            image_info.setdefault("width", 0)
+            image_info.setdefault("height", 0)
+
+        return image_info
+
+    def _upload_to_oss(self, obj_key: str, data: bytes,
+                       token: dict) -> None:
+        """Upload image data to Alibaba Cloud OSS."""
+        content_type = "image/jpeg"
+        date = email.utils.formatdate(usegmt=True)
+        security_token = token["access_token"]
+        access_id = token["access_id"]
+        access_key = token["access_key"]
+
+        string_to_sign = (
+            f"PUT\n\n{content_type}\n{date}\n"
+            f"x-oss-security-token:{security_token}\n"
+            f"/zhihu-pics/{obj_key}"
+        )
+        signature = base64.b64encode(
+            hmac.new(
+                access_key.encode(), string_to_sign.encode(), hashlib.sha1
+            ).digest()
+        ).decode()
+
+        headers = {
+            "Content-Type": content_type,
+            "Date": date,
+            "x-oss-security-token": security_token,
+            "Authorization": f"OSS {access_id}:{signature}",
+        }
+        try:
+            resp = requests.put(
+                f"{ZHIHU_OSS_UPLOAD_URL}/{obj_key}",
+                data=data, headers=headers, timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            raise DataFetchError(f"OSS upload failed: {e}") from e
+        if resp.status_code != 200:
+            raise DataFetchError(
+                f"OSS upload failed ({resp.status_code}): {resp.text[:200]}"
+            )
+
+    def _poll_image(self, image_id: str, max_attempts: int = 15,
+                    interval: float = 2.0) -> dict:
+        """Poll image status until processing completes."""
+        import time
+        for _ in range(max_attempts):
+            try:
+                resp = self._session.get(
+                    f"{ZHIHU_IMAGE_API}/{image_id}", timeout=DEFAULT_TIMEOUT,
+                )
+            except requests.RequestException as e:
+                raise DataFetchError(f"Image poll failed: {e}") from e
+            if resp.status_code != 200:
+                raise DataFetchError(
+                    f"Image poll failed ({resp.status_code}): {resp.text[:200]}"
+                )
+            data = resp.json()
+            if data.get("status") == "success":
+                return {
+                    "src": data["src"],
+                    "original_src": data["original_src"],
+                    "watermark": data.get("watermark", "watermark"),
+                    "watermark_src": data.get("watermark_src", ""),
+                }
+            time.sleep(interval)
+        raise DataFetchError("Image processing timed out")
+
+    # ===== Helpers =====
+
+    @staticmethod
+    def _build_img_html(image_infos: list[dict]) -> str:
+        """Build HTML img tags from image info dicts."""
+        tags = []
+        for info in image_infos:
+            src = info["src"]
+            original = info.get("original_src", src)
+            wm = info.get("watermark", "watermark")
+            wm_src = info.get("watermark_src", "")
+            w = info.get("width", 0)
+            h = info.get("height", 0)
+            tags.append(
+                f'<img src="{src}" data-caption="" data-size="normal"'
+                f' data-rawwidth="{w}" data-rawheight="{h}"'
+                f' data-watermark="{wm}" data-original-src="{original}"'
+                f' data-watermark-src="{wm_src}"'
+                f' data-private-watermark-src=""/>'
+            )
+        return "".join(tags)
+
+    def _create_content_draft(self, action: str) -> str:
+        """Create a content draft and return the content_id."""
+        try:
+            resp = self._session.post(
+                ZHIHU_CONTENT_DRAFTS_URL, json={"action": action},
+                timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            raise DataFetchError(f"Create draft failed: {e}") from e
+        if resp.status_code == 401:
+            raise LoginError("Session expired or not logged in")
+        if resp.status_code != 200:
+            raise DataFetchError(
+                f"Create draft failed ({resp.status_code}): {resp.text[:200]}"
+            )
+        data = resp.json()
+        content_id = data.get("data", {}).get("content_id", "")
+        if not content_id:
+            raise DataFetchError("Draft created but no content_id returned")
+        return str(content_id)
+
+    def _content_publish(self, payload: dict) -> dict:
+        """Post to the unified content/publish endpoint."""
+        headers = {"x-requested-with": "fetch"}
+        try:
+            resp = self._session.post(
+                ZHIHU_CONTENT_PUBLISH_URL, json=payload,
+                headers=headers, timeout=DEFAULT_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            raise DataFetchError(f"Publish failed: {e}") from e
+
+        if resp.status_code == 401:
+            raise LoginError("Session expired or not logged in")
+        if resp.status_code not in (200, 201):
+            raise DataFetchError(
+                f"Publish failed ({resp.status_code}): {resp.text[:200]}"
+            )
+        try:
+            data = resp.json()
+        except ValueError:
+            return {}
+        code = data.get("code")
+        if code is not None and code != 0:
+            msg = data.get("message") or data.get("toast_message") or "Unknown error"
+            raise DataFetchError(f"Publish failed: {msg}")
+        result_str = data.get("data", {}).get("result", "")
+        if result_str:
+            try:
+                return json.loads(result_str)
+            except (ValueError, TypeError):
+                pass
+        return data
+
     # ===== Create Question =====
 
     def create_question(self, title: str, detail: str = "",
-                        topic_ids: list[str] | None = None) -> dict:
+                        topic_ids: list[str] | None = None,
+                        image_infos: list[dict] | None = None) -> dict:
         """Create a new question.
 
         Args:
             title: Question title.
             detail: Question detail / description (HTML supported).
             topic_ids: List of topic IDs to tag on the question.
+            image_infos: Optional list of image info dicts from upload_image.
 
         Returns:
             API response dict (contains question id on success).
         """
+        if image_infos:
+            html = detail + self._build_img_html(image_infos)
+            payload = {
+                "action": "question",
+                "data": {
+                    "title": {"title": title},
+                    "topic": {"topics": list(topic_ids) if topic_ids else []},
+                    "hybrid": {
+                        "html": html,
+                        "textLength": len(detail),
+                    },
+                    "extra_info": {"publisher": "pc"},
+                    "questionConfig": {"type": "0"},
+                    "draft": {"disabled": 1},
+                },
+            }
+            return self._content_publish(payload)
+
         url = f"{ZHIHU_API_V4}/questions"
-        payload: dict[str, Any] = {
+        payload_simple: dict[str, Any] = {
             "title": title,
             "detail": detail,
         }
         if topic_ids:
-            payload["topic_url_tokens"] = topic_ids
+            payload_simple["topic_url_tokens"] = topic_ids
         try:
-            resp = self._session.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
+            resp = self._session.post(url, json=payload_simple, timeout=DEFAULT_TIMEOUT)
         except requests.RequestException as e:
             raise DataFetchError(f"Create question failed: {e}") from e
 
@@ -397,52 +634,117 @@ class ZhihuClient:
 
     # ===== Create Pin (想法) =====
 
-    def create_pin(self, content: str) -> dict:
+    def create_pin(self, title: str, content: str = "",
+                   image_infos: list[dict] | None = None) -> dict:
         """Create a new pin (想法).
 
         Args:
-            content: Pin text content (supports HTML).
+            title: Pin title (similar to question title).
+            content: Pin body content (optional, HTML supported when using images).
+            image_infos: Optional list of image info dicts from upload_image.
 
         Returns:
             API response dict (contains pin id on success).
         """
-        url = f"{ZHIHU_API_V4}/pins"
-        payload = {"content": json.dumps([{"type": "text", "content": content}])}
-        headers = {"x-requested-with": "fetch"}
-        try:
-            resp = self._session.post(
-                url, data=payload, headers=headers, timeout=DEFAULT_TIMEOUT,
-            )
-        except requests.RequestException as e:
-            raise DataFetchError(f"Create pin failed: {e}") from e
+        if image_infos:
+            return self._create_pin_with_images(title, content, image_infos)
 
-        if resp.status_code == 401:
-            raise LoginError("Session expired or not logged in")
-        if resp.status_code not in (200, 201):
-            raise DataFetchError(
-                f"Create pin failed ({resp.status_code}): {resp.text[:200]}"
-            )
-        try:
-            return resp.json()
-        except ValueError:
-            return {}
+        # No images: use content/publish API with same payload shape as with-images
+        draft_id = self._create_content_draft("pin")
+        body_html = f"<p>{content.strip()}</p>" if content.strip() else ""
+        text_len = len(content.strip())
+        payload = {
+            "action": "pin",
+            "data": {
+                "publish": {
+                    "traceId": f"{int(time.time() * 1000)},{uuid.uuid4()}",
+                },
+                "commentsPermission": {"comment_permission": "all"},
+                "extra_info": {"view_permission": "all", "publisher": "pc"},
+                "draft": {"disabled": 1, "id": draft_id},
+                "title": {"title": title},
+                "hybrid": {
+                    "html": body_html,
+                    "textLength": text_len,
+                },
+            },
+        }
+        return self._content_publish(payload)
+
+    def _create_pin_with_images(self, title: str, content: str,
+                                image_infos: list[dict]) -> dict:
+        """Create a pin with images via the content/publish API.
+        Payload structure aligned with question: title + hybrid (html/content).
+        """
+        draft_id = self._create_content_draft("pin")
+        medias = [
+            {
+                "image": {
+                    "width": info.get("width", 0),
+                    "height": info.get("height", 0),
+                    "url": info["src"],
+                    "originalUrl": info.get("original_src", info["src"]),
+                    "watermark": info.get("watermark", "watermark"),
+                    "watermarkUrl": info.get("watermark_src", ""),
+                }
+            }
+            for info in image_infos
+        ]
+        html = content + self._build_img_html(image_infos) if content else self._build_img_html(image_infos)
+        payload = {
+            "action": "pin",
+            "data": {
+                "publish": {"traceId": f"{int(time.time() * 1000)},{uuid.uuid4()}"},
+                "commentsPermission": {"comment_permission": "all"},
+                "extra_info": {"view_permission": "all", "publisher": "pc"},
+                "draft": {"disabled": 1, "id": draft_id},
+                "title": {"title": title},
+                "hybrid": {
+                    "html": html,
+                    "textLength": len(title) + len(content),
+                },
+                "media": {"medias": medias},
+            },
+        }
+        return self._content_publish(payload)
 
     # ===== Create Article (专栏文章) =====
 
     def create_article(self, title: str, content: str,
-                        topic_ids: list[str] | None = None) -> dict:
+                        topic_ids: list[str] | None = None,
+                        image_infos: list[dict] | None = None) -> dict:
         """Create and publish a new article.
 
         Workflow: create draft → set title/content → publish.
+        When images are provided, uses the content/publish API instead.
 
         Args:
             title: Article title.
             content: Article body (HTML).
             topic_ids: Optional list of topic IDs.
+            image_infos: Optional list of image info dicts from upload_image.
 
         Returns:
             API response dict (contains article id on success).
         """
+        if image_infos:
+            html = content + self._build_img_html(image_infos)
+            draft_id = self._create_content_draft("article")
+            payload = {
+                "action": "article",
+                "data": {
+                    "title": {"title": title},
+                    "hybrid": {
+                        "html": html,
+                        "textLength": len(content),
+                    },
+                    "extra_info": {"publisher": "pc"},
+                    "draft": {"disabled": 1, "id": draft_id},
+                    "commentsPermission": {"comment_permission": "anyone"},
+                },
+            }
+            return self._content_publish(payload)
+
         base = ZHIHU_ZHUANLAN_API
 
         # Step 1: create draft
