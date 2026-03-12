@@ -51,6 +51,77 @@ pip install -e .
 
 ---
 
+## Agent Rules
+
+1. **信息获取类命令说明：使用--json输出原始JSON数据，获得更加详细的数据。**
+2. **协助用户扫码登录时**：执行 `zhihu login --qrcode` 后，二维码会同时保存为图片，路径为 **`~/.zhihu-cli/login_qrcode.png`**（Windows 下为 `%USERPROFILE%\.zhihu-cli\login_qrcode.png`）。Agent 可读取该图片并发送给用户，让用户在知乎 App 中扫码完成登录；登录成功后 CLI 会自动保存 Cookie，无需用户再操作。
+3. **安全相关**：
+   - **凭证仅存本地**：Cookie 仅保存在用户本机 `~/.zhihu-cli/cookies.json`（权限 0600），不得将 Cookie 或登录凭证上传、转发给任何第三方或写入对话/日志。
+   - **优先扫码登录**：协助登录时优先引导用户使用 `zhihu login --qrcode`（二维码图片可发送给用户扫码），避免在不可信渠道粘贴 Cookie。
+   - **环境与退出**：提醒用户仅在可信环境中使用；在他人可接触的机器上使用后，建议执行 `zhihu logout` 清除本地登录态。
+
+---
+
+## Agent 命令标准化流程
+
+当用户提出与知乎相关的诉求时，Agent 按以下流程执行，保证行为一致、可复现。
+
+### 1. 理解诉求并映射到命令
+
+| 用户诉求（示例） | 需登录 | 对应命令 |
+|------------------|--------|----------|
+| 登录知乎 / 扫码登录 | — | `zhihu login --qrcode` |
+| 搜一下「Python」/ 查热榜 / 看某问题 | 否（部分接口可匿名） | `zhihu search "Python"` / `zhihu hot` / `zhihu question <id>` |
+| 看我的资料 / 我的收藏 / 通知 / 发想法 / 点赞 / 关注 | 是 | `zhihu whoami` / `zhihu collections` / `zhihu notifications` / `zhihu pin ...` / `zhihu vote <id>` / `zhihu follow-question <id>` |
+| 要原始数据 / 方便你进一步处理 | 视命令而定 | 在对应命令后加 `--json` |
+
+### 2. 判断是否需要登录
+
+- **仅读公开内容**（搜索、热榜、问题/回答详情、用户主页等）：可先直接执行命令；若返回未登录或 403，再进入登录流程。
+- **写操作或个人数据**（发想法/提问/文章、点赞、关注、whoami、收藏、通知）：**先检查登录**，未登录则先完成登录再执行。
+
+### 3. 检查登录状态（需登录时）
+
+```bash
+zhihu status
+```
+
+- 输出为「Authenticated」：继续执行用户请求的命令。
+- 输出为「Not authenticated」：进入**登录流程**（见下）。
+
+### 4. 登录流程（用户未登录时）
+
+1. 执行：`zhihu login --qrcode`
+2. 二维码会保存到 **`~/.zhihu-cli/login_qrcode.png`**（Windows：`%USERPROFILE%\.zhihu-cli\login_qrcode.png`）
+3. Agent 读取该图片并**发送给用户**，提示：「请用知乎 App 扫描图中的二维码，并在手机上点击「确认登录」。」
+4. 等待用户扫码并确认（CLI 会轮询至多约 2 分钟）；成功后终端会提示「Login successful」。
+5. 登录完成后，再执行用户原本请求的命令（如 whoami、发想法等）。
+
+若用户坚持用 Cookie 登录，可引导其从浏览器复制 Cookie 后使用：`zhihu login --cookie "z_c0=xxx; _xsrf=yyy; ..."`（遵守安全规则，不代填、不记录 Cookie）。
+
+### 5. 执行用户请求的命令
+
+- 根据「诉求 → 命令」映射执行对应 `zhihu <子命令> [参数]`。
+- 若用户需要**详细数据**或 Agent 需要**结构化处理**，在数据类命令后加 **`--json`**（如 `zhihu search "Python" --json`、`zhihu whoami --json`）。
+
+### 6. 结果与错误处理
+
+- **成功**：将终端输出或 JSON 整理成用户可读的回复（摘要、列表、链接等）。
+- **未登录 / 401 / 403**：提示用户需要先登录，并进入上述登录流程。
+- **超时 / 网络错误**：提示稍后重试或检查网络。
+- **其他错误**：根据 CLI 报错信息简要说明原因，并建议重试或检查参数（如 ID、url_token 是否正确）。
+
+### 7. 流程小结（简版）
+
+```
+用户诉求 → 映射到 zhihu 子命令
+    → 若需登录：zhihu status → 未登录则 zhihu login --qrcode → 发二维码图给用户 → 等确认
+    → 执行 zhihu <子命令> [--json]
+    → 整理结果或处理错误并回复用户
+```
+
+---
+
 ## Usage（使用方法）
 
 ### 1. 登录（首次使用必须先登录）
@@ -58,15 +129,17 @@ pip install -e .
 ```bash
 # 方式一：二维码扫码登录（推荐，仅需 requests + qrcode，无需 Playwright）
 zhihu login --qrcode
+```
 
+执行后除在终端显示二维码外，会**自动将二维码保存为图片**至 **`~/.zhihu-cli/login_qrcode.png`**，便于 AI Agent 读取并发送给用户扫码。
+
+```bash
 # 方式二：手动提供 Cookie 字符串（至少包含 z_c0）
 zhihu login --cookie "z_c0=xxx; _xsrf=yyy; d_c0=zzz"
 ```
 
 Cookie 获取方法：在浏览器登录知乎 → F12 → Network → 任意请求 → Headers → Cookie，复制完整值。
 
-
-## ***信息获取类命令说明：建议使用--json输出原始JSON数据，获得更加详细的数据。***
 
 ### 2. 验证登录状态
 
@@ -235,11 +308,11 @@ zhihu --help                # 帮助
 
 ```
 zhihu_cli/
-├── __init__.py          # __version__ = "0.1.0", __app_name__
-├── config.py            # 集中配置：路径、URL、HTTP 默认值
+├── __init__.py          # __version__ = "0.2.1", __app_name__
+├── config.py            # 集中配置：路径、URL、统一 UA/Chrome 版本（CHROME_VERSION）
 ├── display.py           # Rich 主题、表格工厂、格式化工具函数
 ├── exceptions.py        # LoginError, DataFetchError
-├── auth.py              # Cookie 管理、QR 码登录（Playwright）
+├── auth.py              # Cookie 管理、QR 码登录（API 轮询 scan_info）
 ├── client.py            # ZhihuClient — 所有 API 调用封装
 ├── cli.py               # Click group 入口，注册所有子命令
 └── commands/
@@ -253,9 +326,9 @@ zhihu_cli/
 
 | Module | 职责 | 不应包含 |
 |--------|------|----------|
-| `config.py` | 常量、路径、URL | 任何逻辑 |
+| `config.py` | 常量、路径、URL、统一 `CHROME_VERSION`、`get_browser_headers()` | 业务逻辑 |
 | `display.py` | Rich 主题、`print_*` 辅助函数、`strip_html`、`format_count`、`truncate`、`make_table`、`make_kv_table`、`format_stats_line` | API 调用 |
-| `auth.py` | Cookie 读写、QR 登录、cookie 解析验证 | CLI 命令定义 |
+| `auth.py` | Cookie 读写、QR 登录（scan_info 轮询）、cookie 解析验证 | CLI 命令定义 |
 | `client.py` | `ZhihuClient` 类，所有 API 端点方法 | 终端输出 |
 | `commands/*.py` | Click 命令定义、调用 client 并格式化输出 | 直接 HTTP 请求 |
 
@@ -272,7 +345,7 @@ zhihu_cli/
 - **V4 基础**: `https://www.zhihu.com/api/v4`（大多数端点）
 - **V3 备用**: `https://www.zhihu.com/api/v3`（热榜、Feed）
 - **认证**: Cookie-based，`z_c0` 为必需 token
-- **存储**: `~/.zhihu-cli/cookies.json`
+- **存储**: `~/.zhihu-cli/cookies.json`；二维码登录时图片保存为 `~/.zhihu-cli/login_qrcode.png`（供 Agent 发送给用户扫码）
 
 ### ZhihuClient Methods
 
@@ -369,10 +442,10 @@ python -m twine upload dist/*
 
 | 包 | 用途 |
 |----|------|
-| `click>=8.0` | CLI 框架 |
 | `requests>=2.28` | HTTP 客户端 |
+| `qrcode>=7.4` | 二维码生成（终端显示与保存为图片） |
+| `click>=8.0` | CLI 框架 |
 | `rich>=13.0` | 终端美化输出 |
-| `playwright>=1.40` | QR 码登录浏览器自动化 |
-| `qrcode>=7.4` | QR 码生成 |
+| `pillow>=12.1.1` | 图片处理（二维码保存为 PNG、上传图片等） |
 | `pytest>=8.3` | 测试框架（dev） |
 | `ruff>=0.11.0` | Linter（dev） |

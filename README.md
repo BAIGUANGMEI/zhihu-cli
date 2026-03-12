@@ -17,6 +17,7 @@
 - **收藏** — 查看收藏夹列表
 - **通知** — 查看通知消息
 - **JSON 输出** — 所有数据命令支持 `--json`
+- **降低风控/反爬** — 全局统一 Chrome 浏览器指纹（`User-Agent` + `sec-ch-ua` + `sec-ch-ua-platform` 一致，版本号集中管理于 `config.CHROME_VERSION`）；登录与写操作带 CSRF（`_xsrf` / `x-xsrftoken`）。
 
 ## 命令一览
 
@@ -60,12 +61,14 @@ clawhub install pyzhihu-cli
 
 安装后，AI Agent 可自动获取 zhihu-cli 的完整使用说明、命令参考、项目架构和开发指南。
 
+**扫码登录与 Agent**：执行 `zhihu login --qrcode` 时，二维码会保存为 **`~/.zhihu-cli/login_qrcode.png`**（Windows 为 `%USERPROFILE%\.zhihu-cli\login_qrcode.png`）。Agent 可读取该图片并发送给用户，由用户在知乎 App 中扫码完成登录。
+
 ## 使用
 
 ### 登录
 
 ```bash
-# 二维码扫码登录（推荐）
+# 二维码扫码登录（推荐）；同时将二维码保存为 ~/.zhihu-cli/login_qrcode.png，供 AI Agent 发送给用户扫码
 zhihu login --qrcode
 
 # 手动提供 cookie 字符串（至少包含 z_c0）
@@ -205,9 +208,16 @@ zhihu --help
 CLI (click) → ZhihuClient (requests)
                   ↓ API 请求
               Zhihu V4 API → JSON 响应
+
+zhihu_cli/
+├── config.py      # 集中配置：路径、URL、统一 UA/Chrome 版本
+├── auth.py        # Cookie 管理、QR 码登录、scan_info 轮询
+├── client.py      # ZhihuClient — 所有 API 调用封装
+├── display.py     # Rich 终端输出
+└── commands/      # Click 子命令
 ```
 
-使用 `requests` 库通过知乎 V4 API 获取数据。登录认证通过浏览器二维码扫描或手动提供 Cookie 完成。
+使用 `requests` 库通过知乎 V4 API 获取数据。登录认证通过二维码扫描或手动提供 Cookie 完成。
 
 ## 工作原理
 
@@ -223,6 +233,7 @@ CLI (click) → ZhihuClient (requests)
 - `zhihu login --cookie` 要求 cookie 至少包含 `z_c0`
 - 用户查询使用 URL Token（即知乎个人主页的路径部分，如 `zhihu.com/people/xxx` 中的 `xxx`）
 - 二维码登录使用知乎官方 API，无需安装 Playwright
+- 浏览器指纹版本号集中管理于 `config.py` 的 `CHROME_VERSION`，修改一处即可全局生效
 
 ## 网络安全设计
 

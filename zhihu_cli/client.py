@@ -21,8 +21,8 @@ import requests
 from PIL import Image
 
 from .config import (
-    DEFAULT_HEADERS,
     DEFAULT_TIMEOUT,
+    get_browser_headers,
     ZHIHU_API_V4,
     ZHIHU_CONTENT_DRAFTS_URL,
     ZHIHU_CONTENT_PUBLISH_URL,
@@ -43,7 +43,7 @@ class ZhihuClient:
 
     def __init__(self, cookie_dict: dict):
         self._session = requests.Session()
-        self._session.headers.update(DEFAULT_HEADERS)
+        self._session.headers.update(get_browser_headers())
         for name, value in cookie_dict.items():
             self._session.cookies.set(name, value, domain=".zhihu.com")
         # CSRF token required by write APIs
