@@ -7,6 +7,7 @@ Strategy:
 
 知乎登录网址: https://www.zhihu.com/signin
 QR 登录 API: https://www.zhihu.com/api/v3/account/api/login/qrcode
+轮询扫码状态（官方）: https://www.zhihu.com/api/v3/account/api/login/qrcode/{token}/scan_info
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ import requests
 from .config import (
     CONFIG_DIR,
     COOKIE_FILE,
-    DEFAULT_HEADERS,
+    get_browser_headers,
+    QRCODE_IMAGE_PATH,
     REQUIRED_COOKIES,
     ZHIHU_BASE_URL,
     ZHIHU_LOGIN_URL,
@@ -84,10 +86,31 @@ def _set_xsrf_header(session: requests.Session) -> None:
         session.headers["x-xsrftoken"] = xsrf
 
 
+def _apply_cookies_from_scan_info(
+    session: requests.Session, info: dict, resp: requests.Response
+) -> None:
+    """从 scan_info 响应 body 或 Set-Cookie 中解析 cookie 并写入 session，避免漏检导致轮询超时。"""
+    # body 中可能带 cookie 字符串或 z_c0 字段
+    cookie_str = info.get("cookie") or info.get("cookies")
+    if isinstance(cookie_str, str) and "z_c0" in cookie_str:
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if "=" in part:
+                name, _, value = part.partition("=")
+                name, value = name.strip(), value.strip()
+                if name:
+                    session.cookies.set(name, value, domain=".zhihu.com")
+    if info.get("z_c0"):
+        session.cookies.set("z_c0", str(info.get("z_c0")), domain=".zhihu.com")
+    # 确保响应头里的 Set-Cookie 被 session 吸收（requests 通常会自动，此处再补一次）
+    for c in resp.cookies:
+        session.cookies.set(c.name, c.value, domain=c.domain or ".zhihu.com")
+
+
 def _qrcode_login_api() -> str:
     """QR code login using only requests + qrcode (no Playwright)."""
     session = requests.Session()
-    session.headers.update(DEFAULT_HEADERS)
+    session.headers.update(get_browser_headers())
     # 与浏览器一致，避免 403：Referer/Origin 必须为知乎站内
     session.headers["Referer"] = f"{ZHIHU_BASE_URL}/signin"
     session.headers["Origin"] = ZHIHU_BASE_URL
@@ -125,7 +148,9 @@ def _qrcode_login_api() -> str:
     if not token or not link:
         raise LoginError("QR code API did not return token or link")
 
-    # 5. Show QR in terminal (link is the URL to scan)
+    # 5. Save QR as image for AI Agent (e.g. OpenClaw) to send to user, then show in terminal
+    _save_qrcode_image(link)
+
     print_info("请使用知乎 App 扫描下方二维码登录")
     console.print()
     if not _display_qr_text_in_terminal(link):
@@ -133,40 +158,69 @@ def _qrcode_login_api() -> str:
     console.print()
     print_info("请在手机上点击「确认登录」…")
 
-    # 6. Poll scan_info until login success (response sets z_c0 via Set-Cookie)
+    # 6. Poll scan_info until login success (官方: .../qrcode/{token}/scan_info)
+    # 403 PERMISSION_ERROR 常见原因：Cookie 不完整、缺少 x-xsrftoken、或请求头被拒（需与浏览器一致）
     scan_url = f"{ZHIHU_QRCODE_API}/{token}/scan_info"
     deadline = time.time() + 120  # 2 min
-    use_post = False  # 若 GET 返回 405 则改用 POST
-    poll_interval = 0.25  # 每 0.25 秒轮询，点完确认后更快提示成功
+    poll_interval = 0.15  # 约每 0.15 秒轮询，点完确认后更快得到结果
+    # 轮询前确保有 _xsrf（与 x-xsrftoken 头一致），缺则补一次登录页
+    if not session.cookies.get("_xsrf"):
+        try:
+            session.get(ZHIHU_LOGIN_URL, timeout=10)
+            _set_xsrf_header(session)
+        except requests.RequestException:
+            pass
+    # scan_info 轮询追加 sec-fetch-* 和签名头（UA/sec-ch-ua 已由 get_browser_headers() 统一）
+    session.headers["Referer"] = f"{ZHIHU_BASE_URL}/signin?next=%2F"
+    session.headers["Accept"] = "*/*"
+    session.headers["sec-fetch-dest"] = "empty"
+    session.headers["sec-fetch-mode"] = "cors"
+    session.headers["sec-fetch-site"] = "same-origin"
+    session.headers["x-requested-with"] = "fetch"
+    session.headers["x-zse-93"] = "101_3_3.0"
     while time.time() < deadline:
         time.sleep(poll_interval)
         _set_xsrf_header(session)
         try:
-            if use_post:
-                resp = session.post(scan_url, json={}, timeout=10)
-            else:
-                resp = session.get(scan_url, timeout=10)
-            if resp.status_code == 405 and not use_post:
-                use_post = True
-                continue
+            resp = session.get(scan_url, timeout=10)
             info = {}
             if resp.content:
                 try:
                     info = resp.json()
                 except ValueError:
                     pass
-            # 扫码确认成功：状态码 200/201，且 (body 中 status 为 CONFIRMED 或 会话/响应 中已有 z_c0)
+            # 轮询 scan_info 官方约定：
+            # - status: 0 → 未扫码，继续轮询
+            # - status: 1 → 已扫码、未点确认，继续轮询
+            # - 返回 access_token / user_id → 用户已点确认，登录成功
             if resp.status_code in (200, 201):
-                status = (info.get("status") or info.get("login_status") or "").upper()
-                if status in ("CONFIRMED", "LOGIN_SUCCESS", "SUCCESS"):
+                api_status = info.get("status")
+                if api_status is not None and api_status == 0:
+                    # 未扫码
+                    pass
+                elif api_status is not None and api_status == 1:
+                    # 已扫码未确认，继续轮询
+                    pass
+                elif info.get("access_token") or info.get("user_id") is not None:
+                    # 用户已点确认，接口返回 token/user_id，登录成功
                     break
-                # 服务端可能通过 Set-Cookie 写入 z_c0，或放在 body 里
+                else:
+                    # 兼容其他返回格式
+                    status_str = (info.get("login_status") or "").strip().upper()
+                    if status_str in ("CONFIRMED", "LOGIN_SUCCESS", "SUCCESS", "OK", "LOGGED_IN"):
+                        break
+                    if info.get("success") is True or info.get("logged_in") is True:
+                        break
+                # 会话或响应中已有 z_c0 也视为成功
                 if session.cookies.get("z_c0"):
                     break
                 for c in resp.cookies:
                     if c.name == "z_c0":
                         session.cookies.set(c.name, c.value, domain=c.domain or ".zhihu.com")
                         break
+                if session.cookies.get("z_c0"):
+                    break
+                _apply_cookies_from_scan_info(session, info, resp)
                 if session.cookies.get("z_c0"):
                     break
             resp.raise_for_status()
@@ -218,6 +272,21 @@ def _render_qr_half_blocks(matrix: list[list[bool]]) -> str:
         line = "".join(chars[(top[x], bottom[x])] for x in range(width))
         lines.append(line)
     return "\n".join(lines)
+
+
+def _save_qrcode_image(qr_text: str) -> None:
+    """Save QR code as PNG for AI Agent to send to user (e.g. OpenClaw)."""
+    try:
+        import qrcode
+    except ImportError:
+        return
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        img = qrcode.make(qr_text)
+        img.save(QRCODE_IMAGE_PATH)
+        print_hint(f"二维码已保存至: [bold]{QRCODE_IMAGE_PATH}[/bold]（AI Agent 可读取并发送给用户扫码）")
+    except Exception as e:
+        logger.debug("Failed to save QR code image: %s", e)
 
 
 def _display_qr_text_in_terminal(qr_text: str) -> bool:
