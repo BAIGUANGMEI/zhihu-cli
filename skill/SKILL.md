@@ -1,13 +1,15 @@
 ---
 name: zhihu-cli
-description: "Install, use, develop, debug, test, and extend the zhihu-cli (pyzhihu-cli) project. Use when: installing pyzhihu-cli, running zhihu CLI commands, logging in to Zhihu, searching/browsing content, adding new CLI commands, fixing bugs, writing tests, modifying display output, updating auth flow, or understanding the project architecture."
+description: "提供知乎的 CLI 工具 (pyzhihu-cli），在终端完成搜索、热榜、看问题与回答、发想法/提问/文章、点赞关注等一整套操作；用自然语言说出需求即可由 Agent 代为执行，无需记命令。"
 ---
 
-# zhihu-cli Skill
+# zhihu-cli 技能
 
-## What is zhihu-cli
+## 项目简介
 
-zhihu-cli（PyPI 包名 `pyzhihu-cli`）是一个 Python 命令行工具，在终端中浏览知乎内容。支持搜索、热榜、问题、回答、用户、投票、关注、发布提问、发布想法、发布文章等 23 个子命令。
+本技能围绕 **知乎命令行工具 zhihu-cli**（PyPI 包名 `pyzhihu-cli`），让你在终端里完成知乎上的常见操作。
+
+**能做什么**：在终端中**搜索**话题与用户、看**热榜**、浏览**问题与回答**、查看用户主页与动态、**发布**想法 / 提问 / 文章（支持富文本与图片）、**点赞**与**关注**、查看收藏与通知等，覆盖 23 个子命令，相当于把知乎核心能力搬进命令行。
 
 - **PyPI 包名**: `pyzhihu-cli`
 - **CLI 命令名**: `zhihu`
@@ -30,39 +32,89 @@ pipx install pyzhihu-cli
 pip install pyzhihu-cli
 ```
 
-### 开发安装（从源码）
+### 更新（升级）
+
+用户询问「更新」「升级」「检查新版本」时，按当前安装方式执行对应命令升级到最新版：
 
 ```bash
-# 克隆仓库
-git clone https://github.com/BAIGUANGMEI/zhihu-cli.git
-cd zhihu-cli
+# 若当初用 uv 安装
+uv tool upgrade pyzhihu-cli
 
-# 创建虚拟环境并安装
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-# source .venv/bin/activate
+# 若当初用 pipx 安装
+pipx upgrade pyzhihu-cli
 
-pip install -e .
+# 若当初用 pip 安装（全局或当前环境）
+pip install -U pyzhihu-cli
 ```
 
-二维码登录通过知乎 API（`POST /api/v3/account/api/login/qrcode`）获取 token 与 link，在终端用 `qrcode` 库渲染二维码，轮询 `scan_info` 直至扫码确认，**无需 Playwright**。
+查看当前版本：`zhihu --version`。
+
+二维码登录通过知乎 API（`POST /api/v3/account/api/login/qrcode`）获取 token 与 link，在终端用 `qrcode` 库渲染二维码，轮询 `scan_info` 直至扫码确认。
 
 ---
 
 ## Agent Rules
 
-1. **信息获取类命令说明：使用--json输出原始JSON数据，获得更加详细的数据。**
-2. **协助用户登录时必须检查二维码是否已发送给用户**：只要执行了 `zhihu login --qrcode`，二维码就会同时保存为图片，路径为 **`~/.zhihu-cli/login_qrcode.png`**（Windows 下为 `%USERPROFILE%\.zhihu-cli\login_qrcode.png`）。Agent 在提示用户扫码前，**必须先检查本轮登录流程中该二维码是否已经发送给用户**；若未发送，则必须立即读取图片并发送。不能只依赖终端内显示二维码，也不能在未确认已发送的情况下直接进入等待扫码。登录成功后 CLI 会自动保存 Cookie，无需用户再操作。
-3. **登录过程完整性**：
+1. **信息获取类命令说明**：使用 `--json` 输出原始 JSON 数据，获得更加详细的数据。
+2. **更新提示**：当用户提出「更新 zhihu」「升级到最新版」「检查是否有新版本」等诉求时，提示其按安装方式执行升级命令（uv 用 `uv tool upgrade pyzhihu-cli`，pipx 用 `pipx upgrade pyzhihu-cli`，pip 用 `pip install -U pyzhihu-cli`）；若无法确定安装方式，可一并给出三种方式供用户选择。
+3. **协助用户登录时必须检查二维码是否已发送给用户**：只要执行了 `zhihu login --qrcode`，二维码就会同时保存为图片，路径为 **`~/.zhihu-cli/login_qrcode.png`**（Windows 下为 `%USERPROFILE%\.zhihu-cli\login_qrcode.png`）。Agent 在提示用户扫码前，**必须先检查本轮登录流程中该二维码是否已经发送给用户**；若未发送，则必须立即读取图片并发送。不能只依赖终端内显示二维码，也不能在未确认已发送的情况下直接进入等待扫码。登录成功后 CLI 会自动保存 Cookie，无需用户再操作。
+4. **登录过程完整性**：
    - **不能切断登录进程**：一旦执行 `zhihu login --qrcode` 并进入扫码登录流程，Agent 不得主动中断、关闭、杀掉、替换或遗弃该登录进程。
    - **保持原进程等待完成**：在二维码已发送且等待用户扫码确认期间，必须保持该命令继续运行，直到登录成功、明确失败、超时退出，或用户明确要求停止。
    - **禁止并发重复登录**：同一轮登录流程中，不要再次启动新的 `zhihu login --qrcode` 来替代当前正在等待的登录进程，除非当前进程已经结束或用户明确要求重开。
-4. **安全相关**：
+   - **例外—用户要求重新登录**：若用户明确表示要「重新登录」「换号登录」「重新扫码」等，则**立即中断**当前正在执行的任何进程（包括正在等待扫码的登录进程），并重新发起登录流程。
+5. **安全相关**：
    - **凭证仅存本地**：Cookie 仅保存在用户本机 `~/.zhihu-cli/cookies.json`（权限 0600），不得将 Cookie 或登录凭证上传、转发给任何第三方或写入对话/日志。
-   - **优先扫码登录**：协助登录时优先引导用户使用 `zhihu login --qrcode`，并且在等待扫码前必须先检查二维码是否已发送；若未发送则立即发送，避免在不可信渠道粘贴 Cookie。
+   - **优先扫码登录**：协助登录时优先引导用户使用 `zhihu login --qrcode`，并且在等待扫码前必须先检查二维码是否已发送；若未发送则立即用 OpenClaw 发送图片，避免在不可信渠道粘贴 Cookie。
    - **环境与退出**：提醒用户仅在可信环境中使用；在他人可接触的机器上使用后，建议执行 `zhihu logout` 清除本地登录态。
+
+---
+
+## Agent 使用 OpenClaw 向用户发送内容
+
+当 Agent 需要把二维码、说明文字等主动推送给用户时，应使用 `openclaw message send`。
+
+### 基本用法
+
+```bash
+openclaw message send --channel <渠道> --target <目标> [--message "文本"] [--media <文件路径>]
+```
+
+- **必选**：`--target`（目标用户/频道），以及 **`--message` 或 `--media` 至少其一**。
+- **渠道**：若配置了多个渠道，必须用 `--channel` 指定，取值如：`whatsapp` | `telegram` | `discord` | `googlechat` | `slack` | `mattermost` | `signal` | `imessage` | `msteams`；若仅配置一个渠道则可省略。
+- **目标格式**（依渠道而定）：
+  - Telegram：`@username` 或 chat id
+  - Discord：`channel:<id>` 或 `user:<id>`
+  - Slack：`channel:<id>` 或 `user:<id>`
+  - WhatsApp：E.164 或 group JID
+
+### 典型场景
+
+| 场景 | 命令示例 |
+|------|----------|
+| **发送登录二维码图片** | `openclaw message send --channel telegram --target @用户 --media ~/.zhihu-cli/login_qrcode.png` |
+| **仅发图片（无文案）** | `openclaw message send --channel <渠道> --target <目标> --media /path/to/image.png` |
+| **图片 + 说明文字** | `openclaw message send --channel <渠道> --target <目标> --media ~/.zhihu-cli/login_qrcode.png --message "请用知乎 App 扫描图中二维码，并在手机上点击「确认登录」。"` |
+| **仅发文字** | `openclaw message send --channel <渠道> --target <目标> --message "登录成功，可以继续使用 zhihu 命令。"` |
+
+### 可选参数
+
+- `--account <id>`：多账号时指定账号。
+- `--reply-to <message-id>`：回复某条消息（部分渠道支持）。
+- `--thread-id`：Discord/Slack 线程、Telegram 论坛主题等。
+- `--dry-run`：仅模拟不真实发送。
+- `--verbose`：输出详细日志。
+- `--json`：以 JSON 输出结果。
+
+### 登录流程中发送二维码的推荐步骤
+
+1. 执行 `zhihu login --qrcode` 后，确认二维码已生成到 `~/.zhihu-cli/login_qrcode.png`。
+2. 若本轮尚未向用户发送过该图，则执行：
+   ```bash
+   openclaw message send --channel <用户所在渠道> --target <用户目标> --media ~/.zhihu-cli/login_qrcode.png --message "请用知乎 App 扫描图中二维码，并在手机上点击「确认登录」。"
+   ```
+3. 再在对话中提示用户「二维码已发送到您的 [渠道]，请扫码并确认登录」。
+4. 保持当前 `zhihu login --qrcode` 进程不中断，等待用户扫码完成。
 
 ---
 
@@ -75,9 +127,11 @@ pip install -e .
 | 用户诉求（示例） | 需登录 | 对应命令 |
 |------------------|--------|----------|
 | 登录知乎 / 扫码登录 | — | `zhihu login --qrcode` |
+| 重新登录 / 换号登录 / 重新扫码 | — | 立即中断当前进程，再执行 `zhihu login --qrcode` |
 | 搜一下「Python」/ 查热榜 / 看某问题 | 否（部分接口可匿名） | `zhihu search "Python"` / `zhihu hot` / `zhihu question <id>` |
 | 看我的资料 / 我的收藏 / 通知 / 发想法 / 点赞 / 关注 | 是 | `zhihu whoami` / `zhihu collections` / `zhihu notifications` / `zhihu pin ...` / `zhihu vote <id>` / `zhihu follow-question <id>` |
 | 要原始数据 / 方便你进一步处理 | 视命令而定 | 在对应命令后加 `--json` |
+| 更新 zhihu / 升级到最新版 / 检查新版本 | — | 按安装方式执行：`uv tool upgrade pyzhihu-cli` 或 `pipx upgrade pyzhihu-cli` 或 `pip install -U pyzhihu-cli`；可先 `zhihu --version` 查看当前版本 |
 
 ### 2. 判断是否需要登录
 
@@ -95,16 +149,19 @@ zhihu status
 
 ### 4. 登录流程（用户未登录时）
 
-1. 执行：`zhihu login --qrcode`
-2. 二维码会保存到 **`~/.zhihu-cli/login_qrcode.png`**（Windows：`%USERPROFILE%\.zhihu-cli\login_qrcode.png`）
-3. Agent 先检查**本轮登录流程**中该二维码是否已经发送给用户。
-4. 若尚未发送，立即读取该图片并**发送给用户**。这是必做步骤，不能跳过，也不能仅让用户看终端二维码；若已经发送过，则不要重复发送同一张二维码。
-5. 发送状态确认后，再提示用户：「请用知乎 App 扫描图中的二维码，并在手机上点击「确认登录」。」
-6. **只有在确认二维码已发送给用户后**，才能等待用户扫码并确认（CLI 会轮询至多约 2 分钟）；在此期间**不能切断当前登录进程**，除非用户明确要求停止。
-7. 若登录进程仍在等待中，不要再次启动新的登录命令来替代它；应继续保持当前进程，直到成功、失败、超时，或用户明确要求终止并重试。
-8. 登录完成后，再执行用户原本请求的命令（如 whoami、发想法等）。
+1. **执行登录**：`zhihu login --qrcode`  
+   二维码会保存到 **`~/.zhihu-cli/login_qrcode.png`**（Windows：`%USERPROFILE%\.zhihu-cli\login_qrcode.png`）。
+2. **检查是否已发送**：确认本轮登录流程中该二维码是否已经通过 OpenClaw 发送给用户。
+3. **若尚未发送**：必须用 OpenClaw 发送图片（可同时发说明文字）：
+   ```bash
+   openclaw message send --channel <渠道> --target <目标> --media ~/.zhihu-cli/login_qrcode.png --message "请用知乎 App 扫描图中二维码，并在手机上点击「确认登录」。"
+   ```
+   不能跳过此步，也不能仅依赖终端展示；若已发送过则不要重复发送。
+4. **提示用户**：在对话中说明「二维码已发送到您的 [渠道]，请扫码并在手机上点击「确认登录」」。
+5. **保持进程**：在确认二维码已发送后，等待用户扫码；CLI 会轮询至多约 2 分钟。**不得切断当前登录进程**，也不要再启动新的 `zhihu login --qrcode`，直到成功、失败、超时或用户明确要求终止。**例外**：若用户明确要求「重新登录」「换号登录」「重新扫码」，则立即中断当前进程并重新执行本登录流程。
+6. **后续**：登录完成后，再执行用户原本请求的命令（如 whoami、发想法等）。
 
-若用户坚持用 Cookie 登录，可引导其从浏览器复制 Cookie 后使用：`zhihu login --cookie "z_c0=xxx; _xsrf=yyy; ..."`（遵守安全规则，不代填、不记录 Cookie）。
+若用户坚持用 Cookie 登录，可引导：`zhihu login --cookie "z_c0=xxx; _xsrf=yyy; ..."`（遵守安全规则，不代填、不记录 Cookie）。
 
 ### 5. 执行用户请求的命令
 
@@ -121,8 +178,11 @@ zhihu status
 ### 7. 流程小结（简版）
 
 ```
-用户诉求 → 映射到 zhihu 子命令
-    → 若需登录：zhihu status → 未登录则 zhihu login --qrcode → 发二维码图给用户 → 等确认
+用户诉求 → 若为「重新登录/换号/重新扫码」：立即中断当前进程 → zhihu login --qrcode → …
+    → 否则：映射到 zhihu 子命令
+    → 若需登录：zhihu status → 未登录则 zhihu login --qrcode
+        → 若未发过二维码：openclaw message send --channel <渠道> --target <目标> --media ~/.zhihu-cli/login_qrcode.png [--message "…"]
+        → 提示用户扫码 → 保持登录进程直至完成（用户要求重新登录时则中断并重新登录）
     → 执行 zhihu <子命令> [--json]
     → 整理结果或处理错误并回复用户
 ```
@@ -134,11 +194,11 @@ zhihu status
 ### 1. 登录（首次使用必须先登录）
 
 ```bash
-# 方式一：二维码扫码登录（推荐，仅需 requests + qrcode，无需 Playwright）
+# 方式一：二维码扫码登录（推荐，仅需 requests + qrcode）
 zhihu login --qrcode
 ```
 
-执行后除在终端显示二维码外，会**自动将二维码保存为图片**至 **`~/.zhihu-cli/login_qrcode.png`**。Agent 在扫码登录场景下必须先检查这张二维码在本轮流程中是否已经发送给用户；若未发送则必须发送，不能只依赖终端展示。登录开始后还必须保持原登录进程持续运行，不能中途切断。
+执行后除在终端显示二维码外，会**自动将二维码保存为图片**至 **`~/.zhihu-cli/login_qrcode.png`**。Agent 在扫码登录场景下必须先检查该图在本轮是否已通过 **OpenClaw** 发送给用户；若未发送则执行 `openclaw message send --channel <渠道> --target <目标> --media ~/.zhihu-cli/login_qrcode.png`（可加 `--message "请用知乎 App 扫描图中二维码…"`），不能只依赖终端展示。登录开始后须保持原登录进程持续运行，不能中途切断。
 
 ```bash
 # 方式二：手动提供 Cookie 字符串（至少包含 z_c0）
@@ -274,10 +334,12 @@ zhihu article "标题" "内容" -t 19550517
 zhihu collections           # 收藏夹
 zhihu notifications         # 通知
 zhihu logout                # 退出登录
-zhihu --version             # 版本
+zhihu --version             # 当前版本（更新前可先查看）
 zhihu -v search "Python"    # 开启调试日志
 zhihu --help                # 帮助
 ```
+
+**更新到最新版**：按安装方式执行 `uv tool upgrade pyzhihu-cli`、`pipx upgrade pyzhihu-cli` 或 `pip install -U pyzhihu-cli`。
 
 ### 所有命令汇总
 
@@ -311,49 +373,6 @@ zhihu --help                # 帮助
 
 ---
 
-## Architecture（项目架构）
-
-```
-zhihu_cli/
-├── __init__.py          # __version__ = "0.2.1", __app_name__
-├── config.py            # 集中配置：路径、URL、统一 UA/Chrome 版本（CHROME_VERSION）
-├── display.py           # Rich 主题、表格工厂、格式化工具函数
-├── exceptions.py        # LoginError, DataFetchError
-├── auth.py              # Cookie 管理、QR 码登录（API 轮询 scan_info）
-├── client.py            # ZhihuClient — 所有 API 调用封装
-├── cli.py               # Click group 入口，注册所有子命令
-└── commands/
-    ├── auth.py           # login, logout, status, whoami
-    ├── content.py        # search, hot, question, answer, answers, feed, topic
-    ├── user.py           # user, user-answers, user-articles, followers, following
-    └── interact.py       # vote, follow-question, ask, pin, article, collections, notifications
-```
-
-### Module Responsibilities
-
-| Module | 职责 | 不应包含 |
-|--------|------|----------|
-| `config.py` | 常量、路径、URL、统一 `CHROME_VERSION`、`get_browser_headers()` | 业务逻辑 |
-| `display.py` | Rich 主题、`print_*` 辅助函数、`strip_html`、`format_count`、`truncate`、`make_table`、`make_kv_table`、`format_stats_line` | API 调用 |
-| `auth.py` | Cookie 读写、QR 登录（scan_info 轮询）、cookie 解析验证 | CLI 命令定义 |
-| `client.py` | `ZhihuClient` 类，所有 API 端点方法 | 终端输出 |
-| `commands/*.py` | Click 命令定义、调用 client 并格式化输出 | 直接 HTTP 请求 |
-
-### Key Coding Patterns
-
-1. **懒导入 ZhihuClient** — 命令模块在函数体内 `from ..client import ZhihuClient`，避免顶层导入
-2. **`_get_client()` 上下文管理器** — `content.py`、`user.py`、`interact.py` 各有一个，负责获取 cookie + 创建客户端
-3. **统一输出** — 所有终端输出使用 `display.py` 的 `print_success`/`print_error`/`print_warning`/`print_info`/`print_hint`，禁止裸 `print()`
-4. **JSON 输出** — 所有数据命令通过 `--json` flag 支持 `click.echo(json.dumps(...))`
-5. **错误退出** — 认证失败 `sys.exit(1)`，使用 `print_error()` 输出错误信息
-
-### API Endpoints
-
-- **V4 基础**: `https://www.zhihu.com/api/v4`（大多数端点）
-- **V3 备用**: `https://www.zhihu.com/api/v3`（热榜、Feed）
-- **认证**: Cookie-based，`z_c0` 为必需 token
-- **存储**: `~/.zhihu-cli/cookies.json`；二维码登录时图片保存为 `~/.zhihu-cli/login_qrcode.png`（供 Agent 发送给用户扫码）
-
 ### ZhihuClient Methods
 
 | 方法 | 端点 | 说明 |
@@ -381,78 +400,3 @@ zhihu_cli/
 | `get_notifications(...)` | `/notifications` | 通知 |
 
 ---
-
-## Adding a New Command
-
-1. **在 `client.py` 添加 API 方法**：
-   ```python
-   def get_xxx(self, ...) -> dict:
-       url = f"{ZHIHU_API_V4}/xxx"
-       return self._get(url, params={...})
-   ```
-
-2. **在对应的 `commands/*.py` 添加 Click 命令**：
-   ```python
-   @click.command()
-   @click.argument("xxx_id", type=int)
-   @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-   def xxx(xxx_id: int, as_json: bool):
-       """Command description."""
-       with _get_client() as client:
-           try:
-               data = client.get_xxx(xxx_id)
-           except Exception as e:
-               print_error(f"Failed: {e}")
-               sys.exit(1)
-           if as_json:
-               click.echo(json.dumps(data, indent=2, ensure_ascii=False))
-               return
-           # Rich table rendering...
-   ```
-
-3. **在 `cli.py` 注册命令**：
-   ```python
-   from .commands.content import xxx
-   cli.add_command(xxx)
-   ```
-
-4. **添加测试**（在 `tests/test_cli.py` 和 `tests/test_client.py`）
-
----
-
-## Testing
-
-- **框架**: pytest + pytest-cov
-- **运行**: `python -m pytest tests/ -v --cov=zhihu_cli`
-- **命令测试**: `click.testing.CliRunner`
-- **客户端测试**: `unittest.mock.patch`，Patch 目标 `zhihu_cli.client.ZhihuClient`（命令模块懒导入）
-- **Fixtures**: `tmp_config_dir`（隔离配置目录）、`saved_cookies`（预写 cookie 文件）
-- **标记**: `@pytest.mark.integration` 用于需要真实登录的测试，默认跳过
-
----
-
-## Build & Publish
-
-```bash
-# 构建
-pip install build twine
-python -m build
-
-# 检查
-python -m twine check dist/*
-
-# 上传到 PyPI
-python -m twine upload dist/*
-```
-
-## Dependencies
-
-| 包 | 用途 |
-|----|------|
-| `requests>=2.28` | HTTP 客户端 |
-| `qrcode>=7.4` | 二维码生成（终端显示与保存为图片） |
-| `click>=8.0` | CLI 框架 |
-| `rich>=13.0` | 终端美化输出 |
-| `pillow>=12.1.1` | 图片处理（二维码保存为 PNG、上传图片等） |
-| `pytest>=8.3` | 测试框架（dev） |
-| `ruff>=0.11.0` | Linter（dev） |
