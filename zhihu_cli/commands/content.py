@@ -87,9 +87,10 @@ def search(query: str, search_type: str, limit: int, as_json: bool):
 
 
 @click.command()
-@click.option("-l", "--limit", default=20, help="Number of entries", show_default=True)
+@click.option("-l", "--limit", default=50, help="Number of hot questions", show_default=True)
+@click.option("-a", "--answers", default=3, help="Answers per question (0=hide)", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-def hot(limit: int, as_json: bool):
+def hot(limit: int, answers: int, as_json: bool):
     """Show trending questions (热榜)."""
     with _get_client() as client:
         try:
@@ -103,23 +104,44 @@ def hot(limit: int, as_json: bool):
             click.echo(json.dumps(results, indent=2, ensure_ascii=False))
             return
 
-        table = make_table(" Trending on Zhihu ")
-        table.add_column("#", style="dim", width=4)
-        table.add_column("Title", ratio=1)
-        table.add_column("Heat", width=12, justify="right")
+        if not data:
+            print_info("Hot list is empty")
+            return
 
-        for i, item in enumerate(data, 1):
+        for idx, item in enumerate(data, 1):
             target = item.get("target", item.get("question", item))
             title = strip_html(target.get("title", "—"))
+            q_id = target.get("id", "")
             reaction = item.get("reaction", {})
             heat = item.get("detail_text", "")
             if not heat:
                 pv = reaction.get("pv", reaction.get("new_pv", 0))
                 heat = format_count(pv) + " views" if pv else "—"
-            table.add_row(str(i), title, f"[bold]{heat}[/bold]")
 
-        console.print()
-        console.print(table)
+            console.print()
+            console.print(f"[title]  {idx}. {title}  [/title]")
+            console.print(f"  [dim]{heat}[/dim]")
+
+            if answers > 0 and q_id:
+                try:
+                    ans_result = client.get_question_answers(
+                        str(q_id), limit=answers,
+                    )
+                    ans_data = ans_result.get("data", [])
+                except Exception:
+                    ans_data = []
+
+                if ans_data:
+                    for a in ans_data:
+                        a_author = a.get("author", {}).get("name", "—")
+                        a_excerpt = strip_html(a.get("excerpt", a.get("content", "")))
+                        a_upvotes = format_count(a.get("voteup_count", 0))
+                        console.print(
+                            f"    [dim]{a_author}:[/dim] {a_excerpt}  [dim]{a_upvotes} upvotes[/dim]"
+                        )
+                else:
+                    console.print("    [dim]No answers[/dim]")
+
         console.print()
 
 
@@ -338,16 +360,25 @@ def feeds(limit: int, comment_limit: int):
             title = strip_html(
                 target.get("title", "")
                 or target.get("question", {}).get("title", "")
-                or truncate(strip_html(target.get("excerpt", "—")), 40)
+                or strip_html(target.get("excerpt", "—"))
             )
             author = target.get("author", {}).get("name", "—")
-            content = strip_html(target.get("excerpt", target.get("content", "")))
 
             console.print()
             console.print(
                 f"[title]  {idx}. [{item_type}] {title}  [/title]"
             )
             console.print(f"  [dim]ID: {item_id}  Author: {author}[/dim]")
+
+            if item_type == "answer":
+                try:
+                    ans = client.get_answer(item_id)
+                    content = strip_html(ans.get("content", ""))
+                except Exception:
+                    content = strip_html(target.get("excerpt", ""))
+            else:
+                content = strip_html(target.get("content", target.get("excerpt", "")))
+
             if content:
                 console.print(f"  {content}")
 
