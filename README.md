@@ -13,10 +13,10 @@
 - **搜索** — 按关键词搜索问题、回答、文章
 - **热榜** — 查看知乎热榜
 - **问题** — 查看问题详情及回答
-- **回答** — 查看回答详情及评论
+- **回答** — 查看回答详情及评论（支持 `--comments` 显示评论，`--limit` 控制数量，默认全部）
 - **发布** — 发布提问、发布想法、发布文章（图文混合，富文本支持）
 - **用户** — 查看用户资料、回答、文章、关注/粉丝
-- **推荐** — 获取首页推荐内容
+- **推荐** — 获取首页推荐内容（`feed` 显示列表，`feeds` 显示内容+评论）
 - **话题** — 查看话题详情及热门问题
 - **互动** — 赞同/取消赞同回答，关注/取消关注问题
 - **收藏** — 查看收藏夹列表
@@ -32,7 +32,7 @@
 | Read       | search, hot, question, answer            | 搜索、热榜、问题详情、回答详情 |
 | Users      | user, user-answers, user-articles        | 查看资料、回答列表、文章列表   |
 | Social     | followers, following                     | 查看粉丝、关注列表             |
-| Feed       | feed, topic                              | 推荐 Feed、话题详情            |
+| Feed       | feed, feeds, topic                      | 推荐 Feed、推荐+评论、话题详情 |
 | Interact   | vote, follow-question                    | 赞同回答、关注问题             |
 | Create     | ask, pin, article                        | 发布提问、发布想法、发布文章（图文混合，富文本支持）     |
 | Delete     | delete-question, delete-pin, delete-article | 删除自己的提问、想法、文章（需确认，可 -y 跳过） |
@@ -129,8 +129,12 @@ zhihu question <question_id> --answers --limit 10
 # 查看回答详情
 zhihu answer <answer_id>
 
-# 包含评论
+# 包含评论（默认显示全部）
 zhihu answer <answer_id> --comments
+zhihu answer <answer_id> -c
+
+# 限制评论数量
+zhihu answer <answer_id> -c -l 5
 ```
 
 ### 用户
@@ -154,7 +158,17 @@ zhihu following <url_token>
 ### 推荐 & 话题
 
 ```bash
+# 推荐列表（仅 ID、类型、标题、作者）
 zhihu feed
+zhihu feed --limit 5
+
+# 推荐 + 回答内容 + 评论
+zhihu feeds
+zhihu feeds -l 3          # 3 条推荐
+zhihu feeds -c 5          # 每条 5 条评论
+zhihu feeds -c 0          # 仅推荐内容，不带评论
+
+# 话题
 zhihu topic <topic_id> --questions
 ```
 
