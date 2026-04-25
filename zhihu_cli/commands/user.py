@@ -18,7 +18,6 @@ from ..display import (
     print_error,
     print_info,
     strip_html,
-    truncate,
 )
 
 
@@ -59,7 +58,7 @@ def user(url_token: str, as_json: bool):
         if headline:
             table.add_row("Headline", headline)
         if desc:
-            table.add_row("Bio", truncate(desc, 80))
+            table.add_row("Bio", desc)
 
         table.add_row("Answers", format_count(info.get("answer_count", 0)))
         table.add_row("Articles", format_count(info.get("articles_count", 0)))
@@ -176,7 +175,7 @@ def followers(url_token: str, limit: int, as_json: bool):
 
         for i, u in enumerate(data, 1):
             name = u.get("name", "—")
-            headline = truncate(u.get("headline", ""), 32)
+            headline = u.get("headline", "")
             cnt = format_count(u.get("follower_count", 0))
             table.add_row(str(i), name, headline, cnt)
 
@@ -215,7 +214,7 @@ def following(url_token: str, limit: int, as_json: bool):
 
         for i, u in enumerate(data, 1):
             name = u.get("name", "—")
-            headline = truncate(u.get("headline", ""), 32)
+            headline = u.get("headline", "")
             cnt = format_count(u.get("follower_count", 0))
             table.add_row(str(i), name, headline, cnt)
 

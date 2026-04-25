@@ -20,7 +20,6 @@ from ..display import (
     print_success,
     print_warning,
     strip_html,
-    truncate,
 )
 
 
@@ -124,7 +123,7 @@ def _format_notification_line(n: dict) -> str:
     else:
         line = verb or "—"
     if target_text and line != target_text:
-        line = f"{line} · {truncate(target_text, 40)}"
+        line = f"{line} · {target_text}"
     return line.strip() or "—"
 
 
@@ -159,7 +158,7 @@ def notifications(limit: int, offset: int, as_json: bool):
         for i, n in enumerate(data, 1):
             is_read = "✓" if n.get("is_read") else "·"
             line = _format_notification_line(n)
-            table.add_row(str(i), is_read, truncate(line, 72))
+            table.add_row(str(i), is_read, line)
 
         console.print()
         console.print(table)

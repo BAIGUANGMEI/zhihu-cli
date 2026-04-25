@@ -18,7 +18,6 @@ from ..display import (
     print_hint,
     print_info,
     strip_html,
-    truncate,
 )
 
 
@@ -41,8 +40,9 @@ def _get_client():
               type=click.Choice(["general", "people", "topic"]),
               help="Search scope")
 @click.option("-l", "--limit", default=10, help="Max results", show_default=True)
+@click.option("-a", "--answers", default=3, help="Answers per question (0=hide)", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-def search(query: str, search_type: str, limit: int, as_json: bool):
+def search(query: str, search_type: str, limit: int, answers: int, as_json: bool):
     """Search Zhihu content."""
     with _get_client() as client:
         try:
@@ -60,36 +60,52 @@ def search(query: str, search_type: str, limit: int, as_json: bool):
             print_info(f'No results for "{query}"')
             return
 
-        table = make_table(f' Search: "{query}" ')
-        table.add_column("#", style="dim", width=4)
-        table.add_column("Type", width=8)
-        table.add_column("Title", ratio=1)
-        table.add_column("Info", width=20)
-
-        for i, item in enumerate(data, 1):
+        for idx, item in enumerate(data, 1):
             obj = item.get("object", item)
             item_type = item.get("type", obj.get("type", "—"))
+            item_id = str(obj.get("id", "—"))
             title = strip_html(obj.get("title", obj.get("name", "—")))
+
+            console.print()
+            console.print(f"[title]  {idx}. [{item_type}] {title}  [/title]")
+            console.print(f"  [dim]ID: {item_id}[/dim]")
+
             # pick useful info snippet
-            info = ""
             if "follower_count" in obj:
-                info = f"{format_count(obj['follower_count'])} followers"
+                console.print(f"  {format_count(obj['follower_count'])} followers")
             elif "excerpt" in obj:
-                info = truncate(strip_html(obj["excerpt"]), 30)
+                console.print(f"  {strip_html(obj['excerpt'])}")
             elif "answer_count" in obj:
-                info = f"{format_count(obj['answer_count'])} answers"
+                console.print(f"  {format_count(obj['answer_count'])} answers")
 
-            table.add_row(str(i), item_type, title, info)
+            # Show answers for answer/question type results
+            if answers > 0 and item_type == "search_result" and item_id != "—":
+                q_id = obj.get("question", {}).get("id", item_id)
+                try:
+                    ans_result = client.get_question_answers(
+                        str(q_id), limit=answers,
+                    )
+                    ans_data = ans_result.get("data", [])
+                except Exception:
+                    ans_data = []
 
-        console.print()
-        console.print(table)
+                if ans_data:
+                    for a in ans_data:
+                        a_author = a.get("author", {}).get("name", "—")
+                        a_content = strip_html(a.get("excerpt", a.get("content", "")))
+                        a_upvotes = format_count(a.get("voteup_count", 0))
+                        console.print(
+                            f"    [dim]{a_author}:[/dim] {a_content}  [dim]{a_upvotes} upvotes[/dim]"
+                        )
+
         console.print()
 
 
 @click.command()
-@click.option("-l", "--limit", default=20, help="Number of entries", show_default=True)
+@click.option("-l", "--limit", default=50, help="Number of hot questions", show_default=True)
+@click.option("-a", "--answers", default=3, help="Answers per question (0=hide)", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-def hot(limit: int, as_json: bool):
+def hot(limit: int, answers: int, as_json: bool):
     """Show trending questions (热榜)."""
     with _get_client() as client:
         try:
@@ -103,23 +119,44 @@ def hot(limit: int, as_json: bool):
             click.echo(json.dumps(results, indent=2, ensure_ascii=False))
             return
 
-        table = make_table(" Trending on Zhihu ")
-        table.add_column("#", style="dim", width=4)
-        table.add_column("Title", ratio=1)
-        table.add_column("Heat", width=12, justify="right")
+        if not data:
+            print_info("Hot list is empty")
+            return
 
-        for i, item in enumerate(data, 1):
+        for idx, item in enumerate(data, 1):
             target = item.get("target", item.get("question", item))
             title = strip_html(target.get("title", "—"))
+            q_id = target.get("id", "")
             reaction = item.get("reaction", {})
             heat = item.get("detail_text", "")
             if not heat:
                 pv = reaction.get("pv", reaction.get("new_pv", 0))
                 heat = format_count(pv) + " views" if pv else "—"
-            table.add_row(str(i), title, f"[bold]{heat}[/bold]")
 
-        console.print()
-        console.print(table)
+            console.print()
+            console.print(f"[title]  {idx}. {title}  [/title]")
+            console.print(f"  [dim]{heat}[/dim]")
+
+            if answers > 0 and q_id:
+                try:
+                    ans_result = client.get_question_answers(
+                        str(q_id), limit=answers,
+                    )
+                    ans_data = ans_result.get("data", [])
+                except Exception:
+                    ans_data = []
+
+                if ans_data:
+                    for a in ans_data:
+                        a_author = a.get("author", {}).get("name", "—")
+                        a_excerpt = strip_html(a.get("excerpt", a.get("content", "")))
+                        a_upvotes = format_count(a.get("voteup_count", 0))
+                        console.print(
+                            f"    [dim]{a_author}:[/dim] {a_excerpt}  [dim]{a_upvotes} upvotes[/dim]"
+                        )
+                else:
+                    console.print("    [dim]No answers[/dim]")
+
         console.print()
 
 
@@ -146,7 +183,7 @@ def question(question_id: int, as_json: bool):
         console.print(f"[title]  {title}  [/title]")
         console.print()
         if detail and detail != "—":
-            console.print(truncate(detail, 300))
+            console.print(detail)
             console.print()
 
         stats = format_stats_line({
@@ -191,7 +228,7 @@ def answers(question_id: int, limit: int, as_json: bool, sort_by: str):
 
         for i, ans in enumerate(data, 1):
             author = ans.get("author", {}).get("name", "Anonymous")
-            excerpt = truncate(strip_html(ans.get("excerpt", ans.get("content", "—"))), 60)
+            excerpt = strip_html(ans.get("excerpt", ans.get("content", "—")))
             upvotes = format_count(ans.get("voteup_count", 0))
             table.add_row(str(i), author, excerpt, f"[bold]{upvotes}[/bold]")
 
@@ -203,7 +240,9 @@ def answers(question_id: int, limit: int, as_json: bool, sort_by: str):
 @click.command()
 @click.argument("answer_id", type=int)
 @click.option("--json", "as_json", is_flag=True, help="Output raw JSON")
-def answer(answer_id: int, as_json: bool):
+@click.option("-c", "--comments", is_flag=True, help="Show comments")
+@click.option("-l", "--limit", default=0, help="Number of comments (0=all)", show_default=True)
+def answer(answer_id: int, as_json: bool, comments: bool, limit: int):
     """Read a specific answer."""
     with _get_client() as client:
         try:
@@ -222,7 +261,7 @@ def answer(answer_id: int, as_json: bool):
         console.print()
         console.print(f"[title]  Answer by {author}  [/title]")
         console.print()
-        console.print(truncate(content, 500))
+        console.print(content)
         console.print()
 
         stats = format_stats_line({
@@ -231,6 +270,41 @@ def answer(answer_id: int, as_json: bool):
         })
         console.print(stats)
         console.print()
+
+        if comments:
+            try:
+                if limit <= 0:
+                    # Fetch all comments via pagination
+                    all_comments = []
+                    offset = 0
+                    page_size = 20
+                    while True:
+                        result = client.get_answer_comments(
+                            str(answer_id), offset=offset, limit=page_size,
+                        )
+                        c_data = result.get("data", [])
+                        all_comments.extend(c_data)
+                        paging = result.get("paging", {})
+                        if paging.get("is_end", True) or not c_data:
+                            break
+                        offset += len(c_data)
+                    c_data = all_comments
+                else:
+                    result = client.get_answer_comments(str(answer_id), limit=limit)
+                    c_data = result.get("data", [])
+            except Exception as e:
+                print_error(f"Failed to fetch comments: {e}")
+                return
+
+            if not c_data:
+                print_info("No comments")
+                return
+
+            for i, c in enumerate(c_data, 1):
+                c_content = strip_html(c.get("content", ""))
+                c_likes = format_count(c.get("vote_count", 0))
+                console.print(f"  [dim]{i}.[/dim] {c_content}  [dim]{c_likes} likes[/dim]")
+            console.print()
 
 
 @click.command()
@@ -255,24 +329,91 @@ def feed(limit: int, as_json: bool):
             return
 
         table = make_table(" Recommended Feed ")
-        table.add_column("#", style="dim", width=4)
+        table.add_column("ID", style="dim", min_width=12)
         table.add_column("Type", width=8)
         table.add_column("Title / Excerpt", ratio=1)
         table.add_column("Author", width=14)
 
-        for i, item in enumerate(data, 1):
+        for item in data:
             target = item.get("target", {})
             item_type = target.get("type", "—")
+            item_id = str(target.get("id", "—"))
             title = strip_html(
                 target.get("title", "")
                 or target.get("question", {}).get("title", "")
-                or truncate(strip_html(target.get("excerpt", "—")), 40)
+                or strip_html(target.get("excerpt", "—"))
             )
             author = target.get("author", {}).get("name", "—")
-            table.add_row(str(i), item_type, title, author)
+            table.add_row(item_id, item_type, title, author)
 
         console.print()
         console.print(table)
+        console.print()
+
+
+@click.command()
+@click.option("-l", "--limit", default=6, help="Number of feed items", show_default=True)
+@click.option("-c", "--comment-limit", default=10, help="Comments per item (0=hide)", show_default=True)
+def feeds(limit: int, comment_limit: int):
+    """Show recommended feed with comments (推荐+评论)."""
+    with _get_client() as client:
+        try:
+            results = client.get_feed(limit=limit)
+            data = results.get("data", [])
+        except Exception as e:
+            print_error(f"Failed to fetch feed: {e}")
+            sys.exit(1)
+
+        if not data:
+            print_info("Feed is empty")
+            return
+
+        for idx, item in enumerate(data, 1):
+            target = item.get("target", {})
+            item_type = target.get("type", "—")
+            item_id = str(target.get("id", "—"))
+            title = strip_html(
+                target.get("title", "")
+                or target.get("question", {}).get("title", "")
+                or strip_html(target.get("excerpt", "—"))
+            )
+            author = target.get("author", {}).get("name", "—")
+
+            console.print()
+            console.print(
+                f"[title]  {idx}. [{item_type}] {title}  [/title]"
+            )
+            console.print(f"  [dim]ID: {item_id}  Author: {author}[/dim]")
+
+            if item_type == "answer":
+                try:
+                    ans = client.get_answer(item_id)
+                    content = strip_html(ans.get("content", ""))
+                except Exception:
+                    content = strip_html(target.get("excerpt", ""))
+            else:
+                content = strip_html(target.get("content", target.get("excerpt", "")))
+
+            if content:
+                console.print(f"  {content}")
+
+            if comment_limit > 0 and item_type == "answer":
+                try:
+                    c_result = client.get_answer_comments(item_id, limit=comment_limit)
+                    c_data = c_result.get("data", [])
+                except Exception:
+                    c_data = []
+
+                if c_data:
+                    for i, c in enumerate(c_data, 1):
+                        c_content = strip_html(c.get("content", ""))
+                        c_likes = format_count(c.get("vote_count", 0))
+                        console.print(
+                            f"    [dim]{i}.[/dim] {c_content}  [dim]{c_likes} likes[/dim]"
+                        )
+                else:
+                    console.print("    [dim]No comments[/dim]")
+
         console.print()
 
 
@@ -299,7 +440,7 @@ def topic(topic_id: int, as_json: bool):
         console.print(f"[title]  # {name}  [/title]")
         if intro:
             console.print()
-            console.print(truncate(intro, 200))
+            console.print(intro)
 
         stats = format_stats_line({
             "Followers": t.get("followers_count", 0),
