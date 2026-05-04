@@ -1,8 +1,8 @@
 ---
 name: zhihu-cli
-description: "知乎 CLI (pyzhihu-cli)：搜索、热榜、问题/回答、发想法/提问/文章、删自己的内容、点赞关注、通知。Agent 代执行 zhihu 命令，Cookie 仅存本地。"
+description: "知乎 CLI (pyzhihu-cli)：搜索、热榜、问题/回答/评论、推荐 Feed、用户资料、发想法/提问/文章、删自己的内容、点赞关注、收藏与通知。Agent 代执行 zhihu 命令，Cookie 仅存本地。"
 author: BAIGUANGMEI
-version: "0.2.5"
+version: "0.2.6"
 tags:
   - zhihu
   - cli
@@ -24,7 +24,7 @@ tags:
 
 ## Instruction Scope
 
-本技能仅限：在用户本机调用已安装的 `zhihu` 命令，执行搜索、热榜、问题/回答、发想法/提问/文章、删除自己的内容、点赞关注、收藏与通知等操作；在用户请求扫码登录且已配置 OpenClaw 时，可将二维码图片经 OpenClaw 发送至用户指定渠道。不包含：代用户将 Cookie 上传至任何第三方、访问非知乎域名、或超出上述命令范围的操作。
+本技能仅限：在用户本机调用已安装的 `zhihu` 命令，执行搜索、热榜、问题/回答/评论、推荐 Feed、用户资料、发想法/提问/文章、删除自己的内容、点赞关注、收藏与通知等操作；在用户请求扫码登录且已配置 OpenClaw 时，可将二维码图片经 OpenClaw 发送至用户指定渠道。不包含：代用户将 Cookie 上传至任何第三方、访问非知乎域名、或超出上述命令范围的操作。
 
 ---
 
@@ -49,7 +49,7 @@ tags:
 ## Agent 规则
 
 1. **诉求 → 命令**：按下表映射。
-2. **数据查询必须用 --json**：凡执行**数据查询类**指令（如 `search`、`hot`、`question`、`answers`、`answer`、`user`、`user-answers`、`user-articles`、`feed`、`topic`、`collections`、`notifications`、`whoami` 等），**必须**带 `--json`，以获取 API 返回的完整数据，便于解析、汇总或向用户展示；不得仅依赖终端表格等非结构化输出。
+2. **数据查询优先用 --json**：凡执行**数据查询类**指令（如 `search`、`hot`、`question`、`answers`、`answer`、`user`、`user-answers`、`user-articles`、`followers`、`following`、`feed`、`topic`、`collections`、`notifications`、`whoami` 等），**必须**带 `--json`，以获取 API 返回的完整数据，便于解析、汇总或向用户展示；不得仅依赖终端表格等非结构化输出。例外：`feeds` 当前不支持 `--json`；需要展示回答评论时使用 `answer --comments`（`--json` 只输出回答详情，不输出评论）。
 3. **需登录时**：先 `zhihu status`；未登录则 `zhihu login --qrcode` 或引导用户 `zhihu login --cookie "..."`。
 4. **扫码登录**：执行 `zhihu login --qrcode` 后，若本轮未发过二维码且用户已配置 OpenClaw → 先将二维码复制到 OpenClaw 工作目录的 `media` 文件夹，再 `openclaw message send --channel <渠道> --target <目标> --media <media 路径>/login_qrcode.png --message "请用知乎 App 扫码并确认登录"`；**保持登录进程不中断**直到成功/失败/超时；用户说「重新登录/换号」则中断当前进程再重新执行登录。**复制步骤**：Linux/macOS：`mkdir -p ~/.openclaw/workspace/media && cp ~/.zhihu-cli/login_qrcode.png ~/.openclaw/workspace/media/`；Windows：`mkdir "%USERPROFILE%\.openclaw\workspace\media" 2>nul & copy "%USERPROFILE%\.zhihu-cli\login_qrcode.png" "%USERPROFILE%\.openclaw\workspace\media\login_qrcode.png"`（若 OpenClaw 工作目录不同则替换为实际路径）。
 5. **安全**：Cookie 仅本地；优先扫码，避免在不可信处粘贴 Cookie；可提醒 `zhihu logout` 清空。
@@ -65,19 +65,19 @@ tags:
 | Cookie 登录 | `zhihu login --cookie "z_c0=...; _xsrf=...; d_c0=..."` |
 | 重新登录 / 换号 | 中断当前进程 → `zhihu login --qrcode` |
 | 检查登录 | `zhihu status`；看资料 `zhihu whoami [--json]` |
-| 搜索 | `zhihu search "关键词" [--type general/topic/people] [--limit N] [--json]` |
-| 热榜 | `zhihu hot [--limit N] [--json]` |
-| 问题 | `zhihu question <id>`；回答列表 `zhihu answers <id> [--limit N]` |
-| 回答详情 | `zhihu answer <id> [--json]` |
-| 用户 | `zhihu user <url_token>`；`user-answers` / `user-articles` / `followers` / `following` |
-| 推荐 / 话题 | `zhihu feed`；`zhihu topic <id>` |
-| 赞同 | `zhihu vote <answer_id>`；取消 `zhihu vote --neutral <id>` |
-| 关注问题 | `zhihu follow-question <id>`；取消 `--unfollow` |
+| 搜索 | `zhihu search "关键词" [--type general/people/topic] [--limit N] [--answers N] [--json]` |
+| 热榜 | `zhihu hot [--limit N] [--answers N] [--json]` |
+| 问题 | `zhihu question <id> [--json]`；回答列表 `zhihu answers <id> [--limit N] [--sort default/created] [--json]` |
+| 回答详情 | `zhihu answer <id> [--comments] [--limit N] [--json]`（评论默认全部，`--limit 0` 为全部） |
+| 用户 | `zhihu user <url_token> [--json]`；`user-answers` / `user-articles` / `followers` / `following` 均支持 `--limit N --json` |
+| 推荐 / 话题 | `zhihu feed [--limit N] [--json]`；`zhihu feeds [--limit N] [--comment-limit N]`；`zhihu topic <id> [--json]` |
+| 赞同 | `zhihu vote <answer_id>`；取消 `zhihu vote <answer_id> --neutral` |
+| 关注问题 | `zhihu follow-question <id>`；取消 `zhihu follow-question <id> --unfollow` |
 | 发提问 | `zhihu ask "标题" [-d "描述"] [-t 话题id ...] [-i 图 ...]` |
 | 发想法 | `zhihu pin "标题" [-c "正文"] [-i 图 ...]` |
 | 发文章 | `zhihu article "标题" "正文" [-t 话题id ...] [-i 图 ...]` |
 | 删提问/想法/文章 | `zhihu delete-question <id>` / `delete-pin <id>` / `delete-article <id>` [-y] |
-| 收藏 / 通知 | `zhihu collections`；`zhihu notifications [-l N] [--offset M]` |
+| 收藏 / 通知 | `zhihu collections [--limit N] [--json]`；`zhihu notifications [--limit N] [--offset M] [--json]` |
 | 退出 | `zhihu logout` |
 | 版本 / 升级 | `zhihu --version`；升级见上规则 6 |
 
@@ -91,7 +91,7 @@ tags:
   → 否则：查上表得命令
     → 若该命令需登录：zhihu status → 未登录则 zhihu login --qrcode 或 --cookie
       → 若扫码且未发过图：复制到 media → openclaw message send --media ... → 保持进程
-    → 执行 zhihu <子命令>（数据查询类必须带 --json）
+    → 执行 zhihu <子命令>（数据查询类必须带 --json；feeds 和 answer --comments 除外）
     → 整理结果或报错提示
 ```
 
@@ -112,13 +112,17 @@ tags:
 zhihu login --qrcode
 zhihu status
 zhihu search "Python" --json
-zhihu hot --limit 10
-zhihu question 12345678
-zhihu user someone
+zhihu hot --limit 10 --json
+zhihu question 12345678 --json
+zhihu answers 12345678 --limit 5 --json
+zhihu answer 87654321 --comments --limit 5
+zhihu user someone --json
+zhihu feed --limit 5 --json
+zhihu feeds --limit 3 --comment-limit 5
 zhihu vote 87654321
 zhihu pin "标题" -c "<p>正文</p>"
 zhihu delete-pin 98765432 -y
-zhihu notifications -l 10
+zhihu notifications -l 10 --json
 zhihu logout
 ```
 
